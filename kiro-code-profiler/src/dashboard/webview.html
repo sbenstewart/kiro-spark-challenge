@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kiro Profiler Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--vscode-font-family, sans-serif); font-size: 13px;
+         background: var(--vscode-editor-background, #1e1e1e);
+         color: var(--vscode-editor-foreground, #d4d4d4); display: flex; height: 100vh; overflow: hidden; }
+
+  /* Sidebar */
+  #sidebar { width: 220px; min-width: 180px; border-right: 1px solid var(--vscode-panel-border, #444);
+             display: flex; flex-direction: column; overflow: hidden; }
+  #sidebar h2 { padding: 10px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+                color: var(--vscode-sideBarTitle-foreground, #bbb); border-bottom: 1px solid var(--vscode-panel-border, #444); }
+  #session-list { flex: 1; overflow-y: auto; }
+  .session-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--vscode-panel-border, #333); }
+  .session-item:hover { background: var(--vscode-list-hoverBackground, #2a2d2e); }
+  .session-item.active { background: var(--vscode-list-activeSelectionBackground, #094771); }
+  .session-item .s-file { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-item .s-meta { font-size: 11px; color: var(--vscode-descriptionForeground, #888); margin-top: 2px; }
+  .session-item .s-baseline { font-size: 10px; color: #4ec9b0; margin-top: 2px; }
+
+  /* Main content */
+  #main { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+
+  /* Cards */
+  .card { background: var(--vscode-editorWidget-background, #252526);
+          border: 1px solid var(--vscode-panel-border, #444); border-radius: 4px; padding: 12px; }
+  .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--vscode-descriptionForeground, #888); margin-bottom: 10px; }
+
+  /* Primary metrics grid */
+  #primary-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .metric-box { background: var(--vscode-input-background, #3c3c3c); border-radius: 4px; padding: 10px; text-align: center; }
+  .metric-box .label { font-size: 11px; color: var(--vscode-descriptionForeground, #888); }
+  .metric-box .value { font-size: 20px; font-weight: 700; margin: 4px 0; }
+  .metric-box .sub { font-size: 11px; color: var(--vscode-descriptionForeground, #888); }
+  .metric-box .delta { font-size: 11px; margin-top: 4px; }
+  .delta.better { color: #4ec9b0; }
+  .delta.worse  { color: #f48771; }
+
+  /* Charts */
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .chart-wrap { position: relative; }
+  .chart-wrap canvas { width: 100%; height: 120px; display: block; }
+  .chart-label { font-size: 11px; color: var(--vscode-descriptionForeground, #888); margin-bottom: 4px; }
+
+  /* Collapsible */
+  .collapsible-header { cursor: pointer; display: flex; align-items: center; gap: 6px; user-select: none; }
+  .collapsible-header::before { content: '▶'; font-size: 10px; transition: transform .15s; }
+  .collapsible-header.open::before { transform: rotate(90deg); }
+  .collapsible-body { display: none; margin-top: 10px; }
+  .collapsible-body.open { display: block; }
+  .adv-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .adv-item { background: var(--vscode-input-background, #3c3c3c); border-radius: 3px; padding: 8px; }
+  .adv-item .al { font-size: 11px; color: var(--vscode-descriptionForeground, #888); }
+  .adv-item .av { font-size: 14px; font-weight: 600; }
+
+  /* Baseline */
+  #baseline-section .bl-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  #baseline-section .bl-info { font-size: 12px; color: var(--vscode-descriptionForeground, #888); }
+  button { background: var(--vscode-button-background, #0e639c); color: var(--vscode-button-foreground, #fff);
+           border: none; border-radius: 3px; padding: 5px 12px; cursor: pointer; font-size: 12px; }
+  button:hover { background: var(--vscode-button-hoverBackground, #1177bb); }
+  button.secondary { background: var(--vscode-button-secondaryBackground, #3a3d41);
+                     color: var(--vscode-button-secondaryForeground, #ccc); }
+  button.secondary:hover { background: var(--vscode-button-secondaryHoverBackground, #45494e); }
+  button.danger { background: #6b2020; color: #f48771; }
+  button.danger:hover { background: #8b2020; }
+
+  /* Suggestions */
+  .suggestion-item { border: 1px solid var(--vscode-panel-border, #444); border-radius: 4px;
+                     padding: 10px; margin-bottom: 8px; }
+  .suggestion-item .s-title { font-weight: 600; margin-bottom: 4px; }
+  .suggestion-item .s-exp { font-size: 12px; color: var(--vscode-descriptionForeground, #aaa); margin-bottom: 6px; }
+  .suggestion-item .s-impact { font-size: 11px; color: #4ec9b0; margin-bottom: 6px; }
+  .suggestion-item .s-diff { font-family: monospace; font-size: 11px; background: var(--vscode-textCodeBlock-background, #1e1e1e);
+                              border-radius: 3px; padding: 6px; white-space: pre-wrap; max-height: 120px; overflow-y: auto;
+                              margin-bottom: 6px; display: none; }
+  .suggestion-item .s-diff.visible { display: block; }
+  .suggestion-item .s-actions { display: flex; gap: 6px; align-items: center; }
+  .suggestion-item .s-rank { font-size: 11px; color: var(--vscode-descriptionForeground, #888); margin-left: auto; }
+
+  /* Real-time monitoring */
+  #monitor-section .mon-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+  #elapsed { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #monitor-status { font-size: 12px; }
+  .alert-banner { background: #6b2020; color: #f48771; border-radius: 3px; padding: 6px 10px;
+                  margin-bottom: 6px; font-size: 12px; }
+
+  /* Improvement visualization */
+  #improvement-section .imp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .imp-col h4 { font-size: 12px; color: var(--vscode-descriptionForeground, #888); margin-bottom: 8px; }
+  .imp-metric { display: flex; justify-content: space-between; padding: 4px 0;
+                border-bottom: 1px solid var(--vscode-panel-border, #333); font-size: 12px; }
+  .diff-view { font-family: monospace; font-size: 11px; background: var(--vscode-textCodeBlock-background, #1e1e1e);
+               border-radius: 3px; padding: 8px; white-space: pre-wrap; max-height: 200px; overflow-y: auto; margin-top: 10px; }
+  .diff-add { color: #4ec9b0; }
+  .diff-remove { color: #f48771; }
+  .diff-context { color: var(--vscode-descriptionForeground, #888); }
+
+  #no-data { text-align: center; color: var(--vscode-descriptionForeground, #888); padding: 40px; }
+</style>
+</head>
+<body>
+
+<!-- Sidebar: session history -->
+<div id="sidebar">
+  <h2>Session History</h2>
+  <div id="session-list"><p style="padding:12px;color:#888;font-size:12px;">No sessions yet.</p></div>
+</div>
+
+<!-- Main dashboard -->
+<div id="main">
+  <div id="no-data">Run a profiling session to see results here.</div>
+
+  <!-- Primary metrics -->
+  <div class="card" id="primary-card" style="display:none">
+    <h3>Primary Metrics</h3>
+    <div id="primary-metrics">
+      <div class="metric-box" id="mb-ram">
+        <div class="label">Peak RAM</div>
+        <div class="value" id="val-ram">—</div>
+        <div class="sub" id="sub-ram">avg —</div>
+        <div class="delta" id="delta-ram"></div>
+      </div>
+      <div class="metric-box" id="mb-disk">
+        <div class="label">Disk I/O</div>
+        <div class="value" id="val-disk">—</div>
+        <div class="sub" id="sub-disk">read / write</div>
+        <div class="delta" id="delta-disk"></div>
+      </div>
+      <div class="metric-box" id="mb-energy">
+        <div class="label">Energy</div>
+        <div class="value" id="val-energy">—</div>
+        <div class="sub">mWh</div>
+        <div class="delta" id="delta-energy"></div>
+      </div>
+      <div class="metric-box" id="mb-time">
+        <div class="label">Exec Time</div>
+        <div class="value" id="val-time">—</div>
+        <div class="sub">ms</div>
+        <div class="delta" id="delta-time"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Time-series charts -->
+  <div class="card" id="charts-card" style="display:none">
+    <h3>Time-Series</h3>
+    <div class="chart-row">
+      <div class="chart-wrap">
+        <div class="chart-label">RAM (MB)</div>
+        <canvas id="chart-ram" height="120"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-label">CPU (%)</div>
+        <canvas id="chart-cpu" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Advanced metrics (collapsible) -->
+  <div class="card" id="adv-card" style="display:none">
+    <div class="collapsible-header" id="adv-toggle">Advanced Metrics</div>
+    <div class="collapsible-body" id="adv-body">
+      <div class="adv-grid">
+        <div class="adv-item"><div class="al">GC Events</div><div class="av" id="adv-gc">—</div></div>
+        <div class="adv-item"><div class="al">GC Pause (ms)</div><div class="av" id="adv-gcpause">—</div></div>
+        <div class="adv-item"><div class="al">Net Sent</div><div class="av" id="adv-netsent">—</div></div>
+        <div class="adv-item"><div class="al">Net Recv</div><div class="av" id="adv-netrecv">—</div></div>
+        <div class="adv-item"><div class="al">FS Open</div><div class="av" id="adv-fsopen">—</div></div>
+        <div class="adv-item"><div class="al">FS Read</div><div class="av" id="adv-fsread">—</div></div>
+        <div class="adv-item"><div class="al">FS Write</div><div class="av" id="adv-fswrite">—</div></div>
+        <div class="adv-item"><div class="al">FS Close</div><div class="av" id="adv-fsclose">—</div></div>
+        <div class="adv-item"><div class="al">Avg CPU %</div><div class="av" id="adv-cpu">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Baseline comparison -->
+  <div class="card" id="baseline-section" style="display:none">
+    <h3>Baseline Comparison</h3>
+    <div class="bl-row">
+      <button id="btn-mark-baseline">Mark as Baseline</button>
+      <span class="bl-info" id="baseline-info">No baseline set for this session.</span>
+    </div>
+  </div>
+
+  <!-- Optimization suggestions -->
+  <div class="card" id="suggestions-section" style="display:none">
+    <h3>Optimization Suggestions</h3>
+    <div id="suggestions-list"></div>
+  </div>
+
+  <!-- Real-time monitoring -->
+  <div class="card" id="monitor-section" style="display:none">
+    <h3>Real-Time Monitoring</h3>
+    <div class="mon-row">
+      <span>Elapsed:</span>
+      <span id="elapsed">0s</span>
+      <span id="monitor-status" style="color:#888">Idle</span>
+    </div>
+    <div id="alerts-container"></div>
+    <div class="chart-row">
+      <div class="chart-wrap">
+        <div class="chart-label">Live RAM (MB)</div>
+        <canvas id="chart-live-ram" height="120"></canvas>
+      </div>
+      <div class="chart-wrap">
+        <div class="chart-label">Live CPU (%)</div>
+        <canvas id="chart-live-cpu" height="120"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- Improvement visualization -->
+  <div class="card" id="improvement-section" style="display:none">
+    <h3>Improvement Visualization</h3>
+    <div class="imp-grid">
+      <div class="imp-col">
+        <h4>Before Optimization</h4>
+        <div id="imp-before"></div>
+      </div>
+      <div class="imp-col">
+        <h4>After Optimization</h4>
+        <div id="imp-after"></div>
+      </div>
+    </div>
+    <div id="imp-summary" style="margin-top:10px;font-size:12px;color:#4ec9b0;"></div>
+    <div class="diff-view" id="imp-diff" style="display:none"></div>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+  const vscode = acquireVsCodeApi();
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  let currentSession = null;
+  let baselineSession = null;
+  let liveRamSamples = [];
+  let liveCpuSamples = [];
+  let monitorStartTime = null;
+  let elapsedTimer = null;
+  let preOptSession = null;
+  let postOptSession = null;
+  let pendingSuggestion = null; // { id, originalContent }
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  function fmt(n, decimals = 1) { return n == null ? '—' : Number(n).toFixed(decimals); }
+  function fmtBytes(b) {
+    if (b == null) return '—';
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+    return (b/1048576).toFixed(1) + ' MB';
+  }
+  function fmtTime(ms) {
+    if (ms == null) return '—';
+    if (ms < 1000) return ms + ' ms';
+    return (ms/1000).toFixed(2) + ' s';
+  }
+  function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
+  function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+  function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+
+  function deltaClass(pct) { return pct <= 0 ? 'better' : 'worse'; }
+  function deltaText(pct) { return (pct > 0 ? '+' : '') + pct.toFixed(1) + '% vs baseline'; }
+
+  // ── Canvas chart ───────────────────────────────────────────────────────────
+  function drawChart(canvasId, samples, color) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.offsetWidth || canvas.parentElement.offsetWidth || 300;
+    const h = 120;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    if (!samples || samples.length < 2) return;
+    const max = Math.max(...samples, 1);
+    const min = 0;
+    const range = max - min || 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    samples.forEach((v, i) => {
+      const x = (i / (samples.length - 1)) * w;
+      const y = h - ((v - min) / range) * (h - 8) - 4;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    // fill
+    ctx.lineTo((samples.length - 1) / (samples.length - 1) * w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fillStyle = color + '22';
+    ctx.fill();
+  }
+
+  // ── Render session ─────────────────────────────────────────────────────────
+  function renderSession(session) {
+    currentSession = session;
+    const m = session.metrics;
+
+    // Show cards
+    document.getElementById('no-data').style.display = 'none';
+    show('primary-card'); show('charts-card'); show('adv-card');
+    show('baseline-section'); show('monitor-section');
+
+    // Primary metrics
+    setText('val-ram', fmt(m.peakRamMb) + ' MB');
+    setText('sub-ram', 'avg ' + fmt(m.avgRamMb) + ' MB');
+    setText('val-disk', fmtBytes(m.totalDiskReadBytes + m.totalDiskWriteBytes));
+    setText('sub-disk', fmtBytes(m.totalDiskReadBytes) + ' / ' + fmtBytes(m.totalDiskWriteBytes));
+    setText('val-energy', fmt(m.energyMwh, 3));
+    setText('val-time', fmtTime(m.executionTimeMs));
+
+    // Baseline deltas
+    if (baselineSession) {
+      const bm = baselineSession.metrics;
+      renderDelta('delta-ram', m.peakRamMb, bm.peakRamMb);
+      renderDelta('delta-energy', m.energyMwh, bm.energyMwh);
+      renderDelta('delta-time', m.executionTimeMs, bm.executionTimeMs);
+    } else {
+      ['delta-ram','delta-disk','delta-energy','delta-time'].forEach(id => setText(id, ''));
+    }
+
+    // Advanced metrics
+    setText('adv-gc', m.gcEvents != null ? m.gcEvents : '—');
+    setText('adv-gcpause', m.gcPauseTotalMs != null ? m.gcPauseTotalMs + ' ms' : '—');
+    setText('adv-netsent', fmtBytes(m.totalNetworkBytesSent));
+    setText('adv-netrecv', fmtBytes(m.totalNetworkBytesReceived));
+    setText('adv-fsopen', m.totalFsOpen);
+    setText('adv-fsread', m.totalFsRead);
+    setText('adv-fswrite', m.totalFsWrite);
+    setText('adv-fsclose', m.totalFsClose);
+    setText('adv-cpu', fmt(m.avgCpuPercent) + '%');
+
+    // Charts
+    const ramSamples = (m.samples || []).map(s => s.ramMb);
+    const cpuSamples = (m.samples || []).map(s => s.cpuPercent);
+    setTimeout(() => {
+      drawChart('chart-ram', ramSamples, '#4ec9b0');
+      drawChart('chart-cpu', cpuSamples, '#569cd6');
+    }, 0);
+
+    // Baseline info
+    setText('baseline-info', session.isBaseline ? '✓ This session is the baseline' : 'No baseline set.');
+
+    // Improvement visualization
+    if (session.linkedPreSessionId) {
+      show('improvement-section');
+    }
+
+    // Suggestions
+    if (session.optimizationSuggestions && session.optimizationSuggestions.length > 0) {
+      renderSuggestions(session.optimizationSuggestions);
+    }
+  }
+
+  function renderDelta(id, current, baseline) {
+    const el = document.getElementById(id);
+    if (!el || !baseline) return;
+    const pct = (current - baseline) / baseline * 100;
+    el.textContent = deltaText(pct);
+    el.className = 'delta ' + deltaClass(pct);
+  }
+
+  // ── Session history ────────────────────────────────────────────────────────
+  function renderHistory(sessions) {
+    const list = document.getElementById('session-list');
+    if (!sessions || sessions.length === 0) {
+      list.innerHTML = '<p style="padding:12px;color:#888;font-size:12px;">No sessions yet.</p>';
+      return;
+    }
+    list.innerHTML = sessions.map(s => {
+      const date = new Date(s.startTime).toLocaleString();
+      const file = s.filePath.split('/').pop() || s.filePath;
+      return `<div class="session-item" data-id="${s.id}">
+        <div class="s-file">${file}</div>
+        <div class="s-meta">${date}</div>
+        <div class="s-meta">${fmtTime(s.executionTimeMs)} · ${fmt(s.peakRamMb)} MB</div>
+        ${s.isBaseline ? '<div class="s-baseline">★ Baseline</div>' : ''}
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.session-item').forEach(el => {
+      el.addEventListener('click', () => {
+        list.querySelectorAll('.session-item').forEach(e => e.classList.remove('active'));
+        el.classList.add('active');
+        vscode.postMessage({ type: 'loadSession', sessionId: el.dataset.id });
+      });
+    });
+  }
+
+  // ── Suggestions ────────────────────────────────────────────────────────────
+  function renderSuggestions(suggestions) {
+    show('suggestions-section');
+    const container = document.getElementById('suggestions-list');
+    container.innerHTML = suggestions.map((s, i) => `
+      <div class="suggestion-item" data-id="${s.id}">
+        <div class="s-title">${i + 1}. ${s.title}</div>
+        <div class="s-exp">${s.explanation}</div>
+        <div class="s-impact">Impact: ${(s.estimatedImpact * 100).toFixed(0)}% · Metric: ${s.affectedMetric}</div>
+        ${s.diff ? `<div class="s-diff" id="diff-${s.id}">${escapeHtml(s.diff)}</div>` : ''}
+        <div class="s-actions">
+          ${s.diff ? `<button class="secondary" onclick="toggleDiff('${s.id}')">Show Diff</button>` : ''}
+          <button onclick="acceptSuggestion('${s.id}')">Accept</button>
+          <button class="danger" onclick="rejectSuggestion('${s.id}')">Reject</button>
+          <span class="s-rank">Rank #${i + 1}</span>
+        </div>
+      </div>`).join('');
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  window.toggleDiff = function(id) {
+    const el = document.getElementById('diff-' + id);
+    if (el) el.classList.toggle('visible');
+  };
+
+  window.acceptSuggestion = function(id) {
+    vscode.postMessage({ type: 'acceptSuggestion', suggestionId: id });
+  };
+
+  window.rejectSuggestion = function(id) {
+    vscode.postMessage({ type: 'rejectSuggestion', suggestionId: id });
+  };
+
+  // ── Alerts ─────────────────────────────────────────────────────────────────
+  function showAlert(alert) {
+    show('monitor-section');
+    const container = document.getElementById('alerts-container');
+    const div = document.createElement('div');
+    div.className = 'alert-banner';
+    const ts = new Date(alert.timestamp).toLocaleTimeString();
+    div.textContent = `⚠ ${alert.type.toUpperCase()} alert at ${ts}: ${fmt(alert.value)} exceeds threshold ${fmt(alert.threshold)}`;
+    container.appendChild(div);
+    setTimeout(() => div.remove(), 10000);
+  }
+
+  // ── Real-time monitoring ───────────────────────────────────────────────────
+  function startElapsedTimer() {
+    monitorStartTime = Date.now();
+    if (elapsedTimer) clearInterval(elapsedTimer);
+    elapsedTimer = setInterval(() => {
+      const secs = Math.floor((Date.now() - monitorStartTime) / 1000);
+      setText('elapsed', secs + 's');
+    }, 1000);
+    setText('monitor-status', 'Monitoring…');
+    show('monitor-section');
+  }
+
+  function addLiveSample(sample) {
+    liveRamSamples.push(sample.ramMb);
+    liveCpuSamples.push(sample.cpuPercent);
+    if (liveRamSamples.length > 200) { liveRamSamples.shift(); liveCpuSamples.shift(); }
+    drawChart('chart-live-ram', liveRamSamples, '#4ec9b0');
+    drawChart('chart-live-cpu', liveCpuSamples, '#569cd6');
+  }
+
+  // ── Improvement visualization ──────────────────────────────────────────────
+  function renderImprovement(before, after) {
+    preOptSession = before;
+    postOptSession = after;
+    show('improvement-section');
+
+    function metricRows(m) {
+      return [
+        ['Peak RAM', fmt(m.peakRamMb) + ' MB'],
+        ['Avg CPU', fmt(m.avgCpuPercent) + '%'],
+        ['Energy', fmt(m.energyMwh, 3) + ' mWh'],
+        ['Exec Time', fmtTime(m.executionTimeMs)],
+      ].map(([l, v]) => `<div class="imp-metric"><span>${l}</span><span>${v}</span></div>`).join('');
+    }
+
+    document.getElementById('imp-before').innerHTML = metricRows(before.metrics);
+    document.getElementById('imp-after').innerHTML = metricRows(after.metrics);
+
+    // Summary
+    const bm = before.metrics, am = after.metrics;
+    const ramPct = bm.peakRamMb ? ((bm.peakRamMb - am.peakRamMb) / bm.peakRamMb * 100).toFixed(1) : 0;
+    const engPct = bm.energyMwh ? ((bm.energyMwh - am.energyMwh) / bm.energyMwh * 100).toFixed(1) : 0;
+    const timePct = bm.executionTimeMs ? ((bm.executionTimeMs - am.executionTimeMs) / bm.executionTimeMs * 100).toFixed(1) : 0;
+    setText('imp-summary', `RAM: ${ramPct}% reduction · Energy: ${engPct}% reduction · Time: ${timePct}% reduction`);
+  }
+
+  function renderDiffView(diff) {
+    const el = document.getElementById('imp-diff');
+    if (!el || !diff) return;
+    el.style.display = 'block';
+    el.innerHTML = diff.split('\n').map(line => {
+      if (line.startsWith('+')) return `<span class="diff-add">${escapeHtml(line)}</span>`;
+      if (line.startsWith('-')) return `<span class="diff-remove">${escapeHtml(line)}</span>`;
+      return `<span class="diff-context">${escapeHtml(line)}</span>`;
+    }).join('\n');
+  }
+
+  // ── Collapsible ────────────────────────────────────────────────────────────
+  document.getElementById('adv-toggle').addEventListener('click', function() {
+    this.classList.toggle('open');
+    document.getElementById('adv-body').classList.toggle('open');
+  });
+
+  document.getElementById('btn-mark-baseline').addEventListener('click', function() {
+    if (currentSession) {
+      vscode.postMessage({ type: 'markBaseline', sessionId: currentSession.id });
+      baselineSession = currentSession;
+      setText('baseline-info', '✓ Marked as baseline');
+    }
+  });
+
+  // ── Message handler ────────────────────────────────────────────────────────
+  window.addEventListener('message', event => {
+    const message = event.data;
+    switch (message.type) {
+      case 'showSession':
+        renderSession(message.session);
+        break;
+      case 'showSessions':
+        renderHistory(message.sessions);
+        break;
+      case 'alert':
+        showAlert(message.alert);
+        break;
+      case 'showSuggestions':
+        renderSuggestions(message.suggestions);
+        break;
+      case 'monitorStart':
+        startElapsedTimer();
+        liveRamSamples = [];
+        liveCpuSamples = [];
+        break;
+      case 'monitorStop':
+        if (elapsedTimer) clearInterval(elapsedTimer);
+        setText('monitor-status', 'Stopped');
+        break;
+      case 'liveSample':
+        addLiveSample(message.sample);
+        break;
+      case 'showImprovement':
+        renderImprovement(message.before, message.after);
+        if (message.diff) renderDiffView(message.diff);
+        break;
+      case 'setBaseline':
+        baselineSession = message.session;
+        if (currentSession) renderSession(currentSession);
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>
