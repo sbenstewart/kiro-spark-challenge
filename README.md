@@ -43,6 +43,44 @@ A Kiro/VS Code extension that profiles your code's resource usage and generates 
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart LR
+    User[Developer in Kiro / VS Code]
+    User --> Commands[Commands and Context Menus]
+    Commands --> Extension[Extension Host<br/>extension.ts]
+
+    Extension --> RuntimeBox[[Runtime Execution Box]]
+    Extension --> AnalysisBox[[Analysis and Persistence Box]]
+    Extension --> DashboardBox[[Dashboard Box]]
+    Extension --> AIBox[[AI Optimization Box]]
+    Extension --> MCPBox[[MCP Integration Box]]
+
+    RuntimeBox --> RuntimeFiles[executionRunner.ts<br/>monitor.ts<br/>runtimeCommandResolver.ts]
+    AnalysisBox --> AnalysisFiles[metricsCollector.ts<br/>energyEstimator.ts<br/>carbonCalculator.ts<br/>greenScorer.ts<br/>ethicsGate.ts<br/>sessionPersister.ts]
+    DashboardBox --> DashboardFiles[dashboardPanel.ts<br/>webview.html]
+    AIBox --> AIFiles[optimizer.ts<br/>llmOptimizer.ts<br/>diffApplier.ts]
+    MCPBox --> MCPFiles[mcp/server.ts]
+
+    RuntimeBox --> AnalysisBox
+    AnalysisBox --> DashboardBox
+    AIBox --> DashboardBox
+    AIBox --> AnalysisBox
+    MCPBox --> AnalysisBox
+```
+
+### Architecture Notes
+
+- `Extension Host`: activates commands, coordinates profiling, monitoring, re-profiling, and dashboard updates.
+- `Runtime Execution Box`: chooses the runtime and launches JS, TS, or Python targets.
+- `Analysis and Persistence Box`: collects metrics, estimates energy/carbon impact, applies the ethics gate, and stores sessions.
+- `Dashboard Box`: renders history, charts, baseline comparisons, alerts, and suggestion workflows.
+- `AI Optimization Box`: produces rule-based and LLM-based suggestions and applies diffs.
+- `MCP Integration Box`: exposes sessions and optimization tooling to external MCP clients.
+
+---
+
 ## Quick Start
 
 1. Install dependencies:

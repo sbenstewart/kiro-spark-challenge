@@ -111,41 +111,28 @@ Right-click any JS/TS/Python file → **Optimize with LLM** to get GPT-4o-mini s
 ## Architecture
 
 ```mermaid
-flowchart TD
-    User[Developer in Kiro / VS Code] --> Commands[Command Palette / Editor Context Menu]
-    Commands --> Extension[extension.ts<br/>activation + command orchestration]
+flowchart LR
+    User[Developer in Kiro / VS Code]
+    User --> Commands[Commands and Context Menus]
+    Commands --> Extension[Extension Host<br/>extension.ts]
 
-    Extension --> Config[configurationManager.ts<br/>settings + runtime paths]
-    Extension --> Dashboard[dashboard/dashboardPanel.ts<br/>webview bridge]
-    Dashboard --> Webview[dashboard/webview.html<br/>history + charts + carbon UI]
+    Extension --> RuntimeBox[[Runtime Execution Box]]
+    Extension --> AnalysisBox[[Analysis and Persistence Box]]
+    Extension --> DashboardBox[[Dashboard Box]]
+    Extension --> AIBox[[AI Optimization Box]]
+    Extension --> MCPBox[[MCP Integration Box]]
 
-    Extension --> ProfileFlow[Profile Flow]
-    ProfileFlow --> RuntimeResolver[runtimeCommandResolver.ts<br/>JS / TS / Python command selection]
-    ProfileFlow --> Metrics[metricsCollector.ts<br/>pidusage + systeminformation sampling]
-    ProfileFlow --> Energy[energyEstimator.ts<br/>CPU/TDP to mWh]
-    ProfileFlow --> Green[greenScorer.ts<br/>A++ to F scoring]
-    ProfileFlow --> Carbon[carbonCalculator.ts<br/>CO2 + yearly projection]
-    ProfileFlow --> Ethics[ethicsGate.ts<br/>carbon budget guard]
-    ProfileFlow --> RuleOpt[optimizer.ts<br/>rule-based suggestions]
-    ProfileFlow --> Sessions[sessionPersister.ts<br/>JSON session storage]
+    RuntimeBox --> RuntimeFiles[executionRunner.ts<br/>monitor.ts<br/>runtimeCommandResolver.ts]
+    AnalysisBox --> AnalysisFiles[metricsCollector.ts<br/>energyEstimator.ts<br/>carbonCalculator.ts<br/>greenScorer.ts<br/>ethicsGate.ts<br/>sessionPersister.ts]
+    DashboardBox --> DashboardFiles[dashboardPanel.ts<br/>webview.html]
+    AIBox --> AIFiles[optimizer.ts<br/>llmOptimizer.ts<br/>diffApplier.ts]
+    MCPBox --> MCPFiles[mcp/server.ts]
 
-    Extension --> Monitor[monitor.ts<br/>live PID sampling + alerts]
-    Monitor --> Dashboard
-
-    Extension --> LLMFlow[LLM Optimization Flow]
-    LLMFlow --> LlmOpt[llmOptimizer.ts<br/>OpenAI suggestion generation]
-    LLMFlow --> Diff[diffApplier.ts<br/>unified diff apply]
-    LLMFlow --> Sessions
-    LLMFlow --> Dashboard
-
-    Extension --> Runner[executionRunner.ts<br/>generic process execution]
-    Runner --> RuntimeResolver
-
-    Extension --> MCP[mcp/server.ts<br/>JSON-RPC MCP server]
-    MCP --> Sessions
-    MCP --> Runner
-    MCP --> RuleOpt
-    MCP --> LlmOpt
+    RuntimeBox --> AnalysisBox
+    AnalysisBox --> DashboardBox
+    AIBox --> DashboardBox
+    AIBox --> AnalysisBox
+    MCPBox --> AnalysisBox
 ```
 
 ### Module Map
