@@ -95,6 +95,10 @@ export class DashboardPanel {
     this._panel.webview.postMessage({ type: 'showSuggestions', suggestions });
   }
 
+  removeSuggestion(suggestionId: string): void {
+    this._panel.webview.postMessage({ type: 'removeSuggestion', suggestionId });
+  }
+
   showImprovement(original: ProfileSession, updated: ProfileSession): void {
     this._panel.webview.postMessage({ type: 'showImprovement', original, updated });
   }

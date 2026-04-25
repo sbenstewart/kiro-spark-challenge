@@ -192,13 +192,32 @@ function findHunkInOriginal(originalLines: string[], hunk: Hunk, searchFrom: num
 
 /**
  * Check whether `originalLines` starting at `startIndex` matches `expected`.
+ *
+ * Uses a two-pass strategy:
+ *   1. Try an exact (strict) match first.
+ *   2. Fall back to a trimmed comparison so that minor trailing-whitespace
+ *      differences introduced by the LLM don't cause a spurious mismatch.
  */
 function linesMatch(originalLines: string[], startIndex: number, expected: string[]): boolean {
   if (startIndex + expected.length > originalLines.length) {
     return false;
   }
+
+  // Pass 1 — exact match
+  let exact = true;
   for (let i = 0; i < expected.length; i++) {
     if (originalLines[startIndex + i] !== expected[i]) {
+      exact = false;
+      break;
+    }
+  }
+  if (exact) {
+    return true;
+  }
+
+  // Pass 2 — trimmed (whitespace-tolerant) match
+  for (let i = 0; i < expected.length; i++) {
+    if (originalLines[startIndex + i].trimEnd() !== expected[i].trimEnd()) {
       return false;
     }
   }

@@ -351,11 +351,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const patched = applyUnifiedDiff(currentContent, suggestion.diff);
 
       if (patched === null) {
-        // Diff didn't apply — replace entire file with LLM-suggested content if diff is a full rewrite,
-        // otherwise report the error
-        vscode.window.showErrorMessage(
-          'Could not apply suggestion: the file has changed since profiling. Please re-profile and try again.'
+        // Diff couldn't apply cleanly — remove this suggestion from the dashboard
+        // since it's no longer valid against the current file state
+        vscode.window.showWarningMessage(
+          `Could not apply "${suggestion.title}": the file has changed since this suggestion was generated. Skipping.`
         );
+        activeSuggestions.delete(suggestionId);
+        const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
+        dashboard.removeSuggestion(suggestionId);
         return;
       }
 
@@ -369,40 +372,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.workspace.applyEdit(edit);
       await document.save();
 
-      vscode.window.showInformationMessage('Optimization applied. Re-profiling…');
+      vscode.window.showInformationMessage('Optimization applied successfully.');
       activeSuggestions.delete(suggestionId);
 
-      // Re-profile with live sampling
-      const config = configManager.getConfig();
-      const { result, metrics } = await profileWithLiveSampling(
-        originalSession.filePath, originalSession.language, config, energyEstimator
-      );
-
-      const newSession = {
-        id: uuidv4(),
-        workspacePath,
-        filePath: originalSession.filePath,
-        language: originalSession.language,
-        sessionType: 'profile' as const,
-        startTime: result.startTime,
-        endTime: result.endTime,
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        metrics,
-        isBaseline: false,
-        optimizationSuggestions: [],
-        linkedPreSessionId: originalSession.id,
-      };
-
-      if (result.exitCode !== 0) {
-        vscode.window.showWarningMessage('Re-profile completed with errors. Check the dashboard for details.');
-      }
-
-      await persister.save(newSession);
+      // Tell the dashboard to remove just this suggestion (keep the rest)
       const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
-      dashboard.showSession(newSession);
-      dashboard.showImprovement(originalSession, newSession);
+      dashboard.removeSuggestion(suggestionId);
+
+      // Show the file in a side editor so the user can see the changes
+      await vscode.window.showTextDocument(document, vscode.ViewColumn.Beside, true);
     })
   );
   // kiro-profiler.rejectSuggestion command
