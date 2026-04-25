@@ -36,14 +36,7 @@ def fib(n):
 
 # --- 3. Bubble sort (O(n^2)) on a large list ---
 def bubble_sort(arr):
-    n = len(arr)
-    for i in range(n):
-        for j in range(0, n - i - 1):
-            if arr[j] > arr[j + 1]:
-                arr[j], arr[j + 1] = arr[j + 1], arr[j]
-    return arr
-
-
+    return sorted(arr)
 # --- 4. Redundant string concatenation in a loop ---
 def build_large_string(n):
     result = ""
