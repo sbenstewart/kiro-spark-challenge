@@ -11,6 +11,7 @@ export interface ExecutionResult {
   stderr: string;
   startTime: number;
   endTime: number;
+  pid?: number;
 }
 
 export interface MetricSample {
@@ -118,4 +119,5 @@ export interface ProfilerConfig {
     node?: string;
     python?: string;
   };
+  openaiApiKey?: string;
 }

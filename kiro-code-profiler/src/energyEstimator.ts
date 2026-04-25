@@ -30,7 +30,10 @@ export class EnergyEstimator {
   /**
    * Estimates energy consumption in milliwatt-hours (mWh).
    *
-   * Formula: energyMwh = (tdpWatts * avgCpuPercent/100 * executionTimeMs) / 3_600_000 * 1000
+   * Uses CPU-weighted TDP when CPU data is available, but always applies
+   * a minimum idle floor (10% TDP) so energy is never zero for a running process.
+   *
+   * Formula: energyMwh = (tdpWatts * max(avgCpuPercent, 10)/100 * executionTimeMs) / 3_600_000 * 1000
    *
    * @param avgCpuPercent  Average CPU utilisation (0–100)
    * @param executionTimeMs  Wall-clock execution time in milliseconds
@@ -38,6 +41,8 @@ export class EnergyEstimator {
    */
   estimate(avgCpuPercent: number, executionTimeMs: number, tdpWatts?: number): number {
     const tdp = tdpWatts !== undefined ? tdpWatts : this.systemTdpWatts;
-    return (tdp * (avgCpuPercent / 100) * executionTimeMs) / 3_600_000 * 1000;
+    // Floor at 10% TDP — a running process always consumes some energy
+    const effectiveCpu = Math.max(avgCpuPercent, 10);
+    return (tdp * (effectiveCpu / 100) * executionTimeMs) / 3_600_000 * 1000;
   }
 }

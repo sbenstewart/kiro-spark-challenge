@@ -73,6 +73,7 @@ export class ExecutionRunner {
       let settled = false;
 
       const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+      const pid = child.pid;
 
       child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
       child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
@@ -100,6 +101,7 @@ export class ExecutionRunner {
           stderr,
           startTime,
           endTime: Date.now(),
+          pid,
         });
       });
 
@@ -113,6 +115,7 @@ export class ExecutionRunner {
           stderr: stderr + `\nFailed to spawn process: ${err.message}`,
           startTime,
           endTime: Date.now(),
+          pid,
         });
       });
     });

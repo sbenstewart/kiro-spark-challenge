@@ -119,7 +119,10 @@
 
   <!-- Primary metrics -->
   <div class="card" id="primary-card" style="display:none">
-    <h3>Primary Metrics</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin-bottom:0">Primary Metrics</h3>
+      <button id="btn-optimize-llm" style="display:none">Optimize with LLM</button>
+    </div>
     <div id="primary-metrics">
       <div class="metric-box" id="mb-ram">
         <div class="label">Peak RAM</div>
@@ -146,6 +149,36 @@
         <div class="delta" id="delta-time"></div>
       </div>
     </div>
+  </div>
+
+  <!-- Carbon impact -->
+  <div class="card" id="carbon-card" style="display:none">
+    <h3>🌍 Carbon Impact</h3>
+    <div id="carbon-metrics" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
+      <div class="metric-box">
+        <div class="label">Single Run CO₂e</div>
+        <div class="value" id="val-carbon-run">—</div>
+        <div class="sub" id="sub-carbon-run">g CO₂e</div>
+        <div class="delta" id="delta-carbon-run"></div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Annual CO₂e</div>
+        <div class="value" id="val-carbon-year">—</div>
+        <div class="sub" id="sub-carbon-year">at 100 runs/day</div>
+        <div class="delta" id="delta-carbon-year"></div>
+      </div>
+      <div class="metric-box">
+        <div class="label">Trees to Offset</div>
+        <div class="value" id="val-carbon-trees">—</div>
+        <div class="sub">per year</div>
+        <div class="delta" id="delta-carbon-trees"></div>
+      </div>
+    </div>
+    <div id="carbon-bar-wrap" style="margin-top:8px;">
+      <div class="chart-label">Annual CO₂e over time (projected, kg)</div>
+      <canvas id="chart-carbon" height="80"></canvas>
+    </div>
+    <div id="carbon-saving" style="display:none;margin-top:10px;padding:8px;background:#1a3a2a;border-radius:4px;font-size:12px;color:#4ec9b0;"></div>
   </div>
 
   <!-- Time-series charts -->
@@ -192,7 +225,10 @@
 
   <!-- Optimization suggestions -->
   <div class="card" id="suggestions-section" style="display:none">
-    <h3>Optimization Suggestions</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <h3 style="margin-bottom:0">Optimization Suggestions</h3>
+      <button id="btn-accept-all" class="secondary" style="display:none">Accept All</button>
+    </div>
     <div id="suggestions-list"></div>
   </div>
 
@@ -217,7 +253,24 @@
     </div>
   </div>
 
-  <!-- Improvement visualization -->
+  <!-- Settings -->
+  <div class="card" id="settings-section">
+    <div class="collapsible-header" id="settings-toggle">Settings</div>
+    <div class="collapsible-body" id="settings-body">
+      <div style="margin-top:8px;">
+        <label style="font-size:12px;display:block;margin-bottom:4px;color:var(--vscode-descriptionForeground,#888);">OpenAI API Key</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input id="input-api-key" type="password" placeholder="sk-..." style="flex:1;background:var(--vscode-input-background,#3c3c3c);color:var(--vscode-input-foreground,#d4d4d4);border:1px solid var(--vscode-input-border,#555);border-radius:3px;padding:5px 8px;font-size:12px;outline:none;" />
+          <button id="btn-save-api-key">Save</button>
+        </div>
+        <div id="api-key-status" style="font-size:11px;margin-top:4px;color:#4ec9b0;display:none;">✓ API key saved.</div>
+        <p style="font-size:11px;color:var(--vscode-descriptionForeground,#888);margin-top:6px;">
+          Used for LLM optimization. You can also set <code>OPENAI_API_KEY</code> in your <code>.env</code> file.
+        </p>
+      </div>
+    </div>
+  </div>
+
   <div class="card" id="improvement-section" style="display:none">
     <h3>Improvement Visualization</h3>
     <div class="imp-grid">
@@ -271,6 +324,88 @@
   function deltaClass(pct) { return pct <= 0 ? 'better' : 'worse'; }
   function deltaText(pct) { return (pct > 0 ? '+' : '') + pct.toFixed(1) + '% vs baseline'; }
 
+  // ── Carbon impact ──────────────────────────────────────────────────────────
+  const GRID_CARBON_G_PER_KWH = 475.0;  // IEA 2023 global average
+  const LAPTOP_TDP_W = 15.0;
+  const RUNS_PER_DAY = 100;
+  const DAYS_PER_YEAR = 365;
+
+  function carbonGrams(executionTimeMs) {
+    const joules = LAPTOP_TDP_W * (executionTimeMs / 1000);
+    const kwh = joules / 3_600_000;
+    return kwh * GRID_CARBON_G_PER_KWH;
+  }
+
+  function renderCarbon(session, baselineSess) {
+    show('carbon-card');
+    const g = carbonGrams(session.metrics.executionTimeMs);
+    const annualKg = (g * RUNS_PER_DAY * DAYS_PER_YEAR) / 1000;
+    const trees = annualKg / 21;  // avg tree absorbs ~21 kg CO2/year
+
+    const gDisplay = g < 1 ? (g * 1000).toFixed(2) : g.toFixed(4);
+    const gUnit = g < 1 ? 'mg CO₂e' : 'g CO₂e';
+    setText('val-carbon-run', gDisplay);
+    setText('sub-carbon-run', gUnit);
+    setText('val-carbon-year', annualKg.toFixed(2) + ' kg');
+    setText('val-carbon-trees', trees < 0.1 ? trees.toFixed(3) : trees.toFixed(1));
+
+    // Project monthly carbon over 12 months for the bar chart
+    const monthly = Array.from({ length: 12 }, (_, i) => annualKg / 12 * (i + 1));
+    setTimeout(() => drawBarChart('chart-carbon', monthly, '#4ec9b0'), 0);
+
+    // Show saving vs baseline
+    const savingEl = document.getElementById('carbon-saving');
+    if (baselineSess) {
+      const baseG = carbonGrams(baselineSess.metrics.executionTimeMs);
+      const savedG = baseG - g;
+      const savedAnnualKg = (savedG * RUNS_PER_DAY * DAYS_PER_YEAR) / 1000;
+      // Carbon deltas (lower is better, so invert sign for deltaClass)
+      renderDelta('delta-carbon-run', g, baseG);
+      renderDelta('delta-carbon-year', annualKg, baseG * RUNS_PER_DAY * DAYS_PER_YEAR / 1000);
+      // Trees: more trees needed = worse, fewer = better
+      renderDelta('delta-carbon-trees', trees, (baseG * RUNS_PER_DAY * DAYS_PER_YEAR / 1000) / 21);
+      if (savedG > 0) {
+        savingEl.style.display = 'block';
+        savingEl.textContent = `✓ Saves ${savedG.toFixed(4)} g CO₂e per run vs baseline → ${savedAnnualKg.toFixed(3)} kg/year saved (≈ ${(savedAnnualKg / 21).toFixed(3)} trees)`;
+      } else {
+        savingEl.style.display = 'none';
+      }
+    } else {
+      ['delta-carbon-run', 'delta-carbon-year', 'delta-carbon-trees'].forEach(id => setText(id, ''));
+      savingEl.style.display = 'none';
+    }
+  }
+
+  function drawBarChart(canvasId, values, color) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.offsetWidth || canvas.parentElement.offsetWidth || 300;
+    const h = 80;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+    if (!values || values.length === 0) return;
+    const max = Math.max(...values, 0.001);
+    const barW = (w / values.length) * 0.7;
+    const gap = (w / values.length) * 0.3;
+    values.forEach((v, i) => {
+      const barH = (v / max) * (h - 16);
+      const x = i * (barW + gap) + gap / 2;
+      const y = h - barH - 12;
+      ctx.fillStyle = color + 'aa';
+      ctx.fillRect(x, y, barW, barH);
+      // month label
+      ctx.fillStyle = '#888';
+      ctx.font = `${9 * dpr}px sans-serif`;
+      ctx.fillText(['J','F','M','A','M','J','J','A','S','O','N','D'][i], x + barW / 2 - 3, h - 2);
+    });
+  }
+
   // ── Canvas chart ───────────────────────────────────────────────────────────
   function drawChart(canvasId, samples, color) {
     const canvas = document.getElementById(canvasId);
@@ -316,6 +451,9 @@
     show('primary-card'); show('charts-card'); show('adv-card');
     show('baseline-section'); show('monitor-section');
 
+    // Show "Optimize with LLM" button now that a session is loaded
+    document.getElementById('btn-optimize-llm').style.display = '';
+
     // Primary metrics
     setText('val-ram', fmt(m.peakRamMb) + ' MB');
     setText('sub-ram', 'avg ' + fmt(m.avgRamMb) + ' MB');
@@ -352,6 +490,9 @@
       drawChart('chart-ram', ramSamples, '#4ec9b0');
       drawChart('chart-cpu', cpuSamples, '#569cd6');
     }, 0);
+
+    // Carbon impact
+    renderCarbon(session, baselineSession);
 
     // Baseline info
     setText('baseline-info', session.isBaseline ? '✓ This session is the baseline' : 'No baseline set.');
@@ -404,6 +545,11 @@
   // ── Suggestions ────────────────────────────────────────────────────────────
   function renderSuggestions(suggestions) {
     show('suggestions-section');
+    // Show "Accept All" only when 2+ suggestions are present
+    const btnAcceptAll = document.getElementById('btn-accept-all');
+    if (btnAcceptAll) {
+      btnAcceptAll.style.display = suggestions.length >= 2 ? '' : 'none';
+    }
     const container = document.getElementById('suggestions-list');
     container.innerHTML = suggestions.map((s, i) => `
       <div class="suggestion-item" data-id="${s.id}">
@@ -436,6 +582,18 @@
   window.rejectSuggestion = function(id) {
     vscode.postMessage({ type: 'rejectSuggestion', suggestionId: id });
   };
+
+  window.requestLLMOptimization = function() {
+    if (currentSession) {
+      vscode.postMessage({ type: 'requestLLMOptimization', sessionId: currentSession.id });
+    }
+  };
+
+  // ── Button wiring ──────────────────────────────────────────────────────────
+  document.getElementById('btn-optimize-llm').addEventListener('click', requestLLMOptimization);
+  document.getElementById('btn-accept-all').addEventListener('click', function() {
+    vscode.postMessage({ type: 'acceptAllSuggestions' });
+  });
 
   // ── Alerts ─────────────────────────────────────────────────────────────────
   function showAlert(alert) {
@@ -520,6 +678,19 @@
     }
   });
 
+  // ── Settings ───────────────────────────────────────────────────────────────
+  document.getElementById('settings-toggle').addEventListener('click', function() {
+    this.classList.toggle('open');
+    document.getElementById('settings-body').classList.toggle('open');
+  });
+
+  document.getElementById('btn-save-api-key').addEventListener('click', function() {
+    const key = document.getElementById('input-api-key').value.trim();
+    if (key) {
+      vscode.postMessage({ type: 'saveApiKey', apiKey: key });
+    }
+  });
+
   // ── Message handler ────────────────────────────────────────────────────────
   window.addEventListener('message', event => {
     const message = event.data;
@@ -549,10 +720,15 @@
         addLiveSample(message.sample);
         break;
       case 'showImprovement':
-        renderImprovement(message.before, message.after);
+        renderImprovement(message.original, message.updated);
         if (message.diff) renderDiffView(message.diff);
         break;
-      case 'setBaseline':
+      case 'apiKeySaved':
+        document.getElementById('input-api-key').value = '';
+        const status = document.getElementById('api-key-status');
+        status.style.display = 'block';
+        setTimeout(() => { status.style.display = 'none'; }, 3000);
+        break;
         baselineSession = message.session;
         if (currentSession) renderSession(currentSession);
         break;

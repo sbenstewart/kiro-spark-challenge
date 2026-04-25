@@ -8,6 +8,7 @@ const DEFAULTS: ProfilerConfig = {
     node: undefined,
     python: undefined,
   },
+  openaiApiKey: undefined,
 };
 
 const MIN_SAMPLE_INTERVAL_MS = 100;
@@ -70,6 +71,8 @@ export class ConfigurationManager {
       DEFAULTS.runtimePaths.python
     );
 
+    const openaiApiKey = src.get<string>('openaiApiKey', '');
+
     return {
       ramAlertThresholdMb,
       cpuAlertThresholdPercent,
@@ -78,6 +81,7 @@ export class ConfigurationManager {
         node: nodeRuntime,
         python: pythonRuntime,
       },
+      openaiApiKey: openaiApiKey || undefined,
     };
   }
 }
