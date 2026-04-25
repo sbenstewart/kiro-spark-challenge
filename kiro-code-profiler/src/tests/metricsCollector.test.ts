@@ -33,6 +33,8 @@ describe('aggregateSamples', () => {
       expect(result.totalFsRead).toBe(0);
       expect(result.totalFsWrite).toBe(0);
       expect(result.totalFsClose).toBe(0);
+      expect(result.sampleCount).toBe(0);
+      expect(result.dataStatus).toBe('empty');
     });
 
     it('passes through executionTimeMs and energyMwh when empty', () => {
@@ -63,6 +65,8 @@ describe('aggregateSamples', () => {
       expect(result.totalFsRead).toBe(2);
       expect(result.totalFsWrite).toBe(3);
       expect(result.totalFsClose).toBe(4);
+      expect(result.sampleCount).toBe(1);
+      expect(result.dataStatus).toBe('partial');
     });
   });
 
@@ -85,6 +89,8 @@ describe('aggregateSamples', () => {
       expect(result.totalFsRead).toBe(6);
       expect(result.totalFsWrite).toBe(6);
       expect(result.totalFsClose).toBe(6);
+      expect(result.sampleCount).toBe(3);
+      expect(result.dataStatus).toBe('ok');
     });
 
     it('preserves the original samples array reference', () => {

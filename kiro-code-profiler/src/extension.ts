@@ -12,10 +12,11 @@ import { DashboardPanel } from './dashboard/dashboardPanel';
 import { aggregateSamples } from './metricsCollector';
 import { applyUnifiedDiff } from './diffApplier';
 import { v4 as uuidv4 } from 'uuid';
-import { OptimizationSuggestion } from './types';
+import { OptimizationSuggestion, ProfileSession, SessionSummary } from './types';
 import { CarbonEthicsGate } from './ethicsGate';
 import { computeGreenScore } from './greenScorer';
 import { calculateCarbonImpact } from './carbonCalculator';
+import { buildRuntimeCommand } from './runtimeCommandResolver';
 
 // Map from sessionId → Set of rejected suggestionIds
 export const rejectedSuggestions = new Map<string, Set<string>>();
@@ -36,15 +37,10 @@ async function profileWithLiveSampling(
   const { spawn } = require('child_process') as typeof import('child_process');
   const collector = new MetricsCollector();
 
-  const cmd_args = (() => {
-    switch (language) {
-      case 'javascript': return { cmd: config.runtimePaths['node'] ?? 'node', args: [filePath] };
-      case 'typescript': return config.runtimePaths['node']
-        ? { cmd: config.runtimePaths['node'], args: [filePath] }
-        : { cmd: 'npx', args: ['ts-node', filePath] };
-      case 'python': return { cmd: config.runtimePaths['python'] ?? 'python3', args: [filePath] };
-    }
-  })();
+  const runtimePath = language === 'python'
+    ? config.runtimePaths['python']
+    : config.runtimePaths['node'];
+  const cmd_args = buildRuntimeCommand(language, filePath, runtimePath);
 
   const result = await new Promise<import('./types').ExecutionResult>((resolve) => {
     const startTime = Date.now();
@@ -54,7 +50,7 @@ async function profileWithLiveSampling(
     const child = spawn(cmd_args.cmd, cmd_args.args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
     if (child.pid) {
-      collector.start(child.pid, Math.min(config.sampleIntervalMs, 200));
+      collector.start(child.pid, Math.max(config.sampleIntervalMs, 200));
     }
 
     child.stdout!.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
@@ -86,8 +82,18 @@ async function profileWithLiveSampling(
   const executionTimeMs = result.endTime - result.startTime;
   const samples = summary.samples;
   const avgCpu = samples.length > 0 ? samples.reduce((s, x) => s + x.cpuPercent, 0) / samples.length : 0;
-  const energyMwh = energyEstimator.estimate(avgCpu, executionTimeMs);
-  const metrics = aggregateSamples(samples, executionTimeMs, energyMwh);
+  const energyMwh = samples.length === 0 ? 0 : energyEstimator.estimate(avgCpu, executionTimeMs);
+  const metrics = {
+    ...aggregateSamples(samples, executionTimeMs, energyMwh),
+    sampleCount: summary.sampleCount,
+    dataStatus: summary.dataStatus,
+    dataWarning: summary.dataWarning,
+  };
+
+  if (samples.length === 0 && result.exitCode !== 0) {
+    metrics.dataStatus = 'error';
+    metrics.dataWarning = 'Execution finished before metrics were collected. Check stderr for the runtime error details.';
+  }
 
   return { result, metrics };
 }
@@ -96,18 +102,84 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const workspacePath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
   const configManager = new ConfigurationManager();
   const persister = new SessionPersister(workspacePath);
-  const energyEstimator = await EnergyEstimator.create();
   const optimizer = new Optimizer();
   const runner = new ExecutionRunner();
   const llmOptimizer = new LlmOptimizer(context.secrets);
 
-  const mcpServer = new McpServer(persister, runner, optimizer, llmOptimizer, workspacePath);
-  mcpServer.start();
-  context.subscriptions.push({ dispose: () => mcpServer.stop() });
+  // Lazy energy estimator — EnergyEstimator.create() calls si.cpu() which is slow (1-3s).
+  // Deferring it to first profile use keeps activation instant.
+  let energyEstimatorPromise: Promise<EnergyEstimator> | null = null;
+  function getEnergyEstimator(): Promise<EnergyEstimator> {
+    if (!energyEstimatorPromise) {
+      energyEstimatorPromise = EnergyEstimator.create();
+    }
+    return energyEstimatorPromise;
+  }
+
+  // Lazy MCP server — only start it when the user first triggers a relevant command.
+  let mcpServer: McpServer | null = null;
+  function getMcpServer(): McpServer {
+    if (!mcpServer) {
+      mcpServer = new McpServer(persister, runner, optimizer, llmOptimizer, workspacePath);
+      mcpServer.start();
+    }
+    return mcpServer;
+  }
+  context.subscriptions.push({ dispose: () => mcpServer?.stop() });
+
+  async function loadBaselineSession(summaries?: SessionSummary[]): Promise<ProfileSession | undefined> {
+    const sessionSummaries = summaries ?? await persister.list(workspacePath);
+    const baselineSummary = sessionSummaries.find((session) => session.isBaseline);
+    if (!baselineSummary) {
+      return undefined;
+    }
+
+    try {
+      return await persister.load(baselineSummary.id);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function showDashboardState(
+    dashboard: DashboardPanel,
+    session?: ProfileSession,
+    overrideSuggestions?: OptimizationSuggestion[]
+  ): Promise<SessionSummary[]> {
+    const sessions = await persister.list(workspacePath);
+    dashboard.showSessions(sessions);
+
+    const notices: string[] = [];
+    const diagnostics = persister.getLastListDiagnostics(workspacePath);
+    if (diagnostics.malformedCount > 0) {
+      const suffix = diagnostics.malformedCount === 1 ? '' : 's';
+      notices.push(`Skipped ${diagnostics.malformedCount} malformed session file${suffix} in history.`);
+    }
+
+    if (session) {
+      const baselineSession = await loadBaselineSession(sessions);
+      dashboard.showSession(session, baselineSession);
+      dashboard.showSuggestions(overrideSuggestions ?? session.optimizationSuggestions);
+
+      if (session.metrics.dataWarning) {
+        notices.unshift(session.metrics.dataWarning);
+      }
+    }
+
+    if (notices.length > 0) {
+      const tone = session?.metrics.dataStatus === 'error' ? 'error' : 'warning';
+      dashboard.showStatus(notices.join(' '), tone);
+    } else {
+      dashboard.clearStatus();
+    }
+
+    return sessions;
+  }
 
   // kiro-profiler.profile command
   context.subscriptions.push(
     vscode.commands.registerCommand('kiro-profiler.profile', async () => {
+      getMcpServer();
       const editor = vscode.window.activeTextEditor;
       if (!editor) {
         vscode.window.showWarningMessage('No active editor to profile.');
@@ -127,7 +199,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: 'Profiling...', cancellable: false },
         async () => {
-          const { result, metrics } = await profileWithLiveSampling(filePath, language, config, energyEstimator);
+          const { result, metrics } = await profileWithLiveSampling(filePath, language, config, await getEnergyEstimator());
 
           const partialSession = {
             id: '',
@@ -153,36 +225,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             optimizationSuggestions: suggestions,
           };
 
-          // Compute green score and carbon impact from measured energy
-          const greenScore = computeGreenScore(metrics.energyMwh);
-          const carbonImpact = calculateCarbonImpact(metrics.energyMwh);
-
           await persister.save(session);
-          dashboard.showSession(session);
-          dashboard.showSuggestions(suggestions);
+          await showDashboardState(dashboard, session, suggestions);
 
-          const sessions = await persister.list(workspacePath);
-          dashboard.showSessions(sessions);
+          if ((metrics.sampleCount ?? 0) > 0) {
+            // Compute green score and carbon impact from measured energy
+            const greenScore = computeGreenScore(metrics.energyMwh);
+            const carbonImpact = calculateCarbonImpact(metrics.energyMwh);
 
-          // Surface green score in the VS Code status notification
-          const annualG = carbonImpact.annualCo2Grams;
-          const annualStr = annualG < 1
-            ? `${(annualG * 1000).toFixed(2)}mg`
-            : `${annualG.toFixed(2)}g`;
-          vscode.window.setStatusBarMessage(
-            `EcoTrace: Grade ${greenScore.grade} (${greenScore.score}/100) · ${annualStr} CO₂/year`,
-            8000
-          );
+            // Surface green score in the VS Code status notification
+            const annualG = carbonImpact.annualCo2Grams;
+            const annualStr = annualG < 1
+              ? `${(annualG * 1000).toFixed(2)}mg`
+              : `${annualG.toFixed(2)}g`;
+            vscode.window.setStatusBarMessage(
+              `EcoTrace: Grade ${greenScore.grade} (${greenScore.score}/100) · ${annualStr} CO₂/year`,
+              8000
+            );
 
-          // Ethics Logic Gate: check projected annual CO₂ against configured budget
-          const carbonBudget = config.carbonBudgetGramsPerYear;
-          if (carbonBudget > 0) {
-            const gate = new CarbonEthicsGate();
-            const gateResult = gate.check(metrics.energyMwh, carbonBudget);
-            if (gateResult.blocked) {
-              vscode.window.showWarningMessage(`🌍 Ethics Gate: ${gateResult.message}`);
+            // Ethics Logic Gate: check projected annual CO₂ against configured budget
+            const carbonBudget = config.carbonBudgetGramsPerYear;
+            if (carbonBudget > 0) {
+              const gate = new CarbonEthicsGate();
+              const gateResult = gate.check(metrics.energyMwh, carbonBudget);
+              if (gateResult.blocked) {
+                vscode.window.showWarningMessage(`🌍 Ethics Gate: ${gateResult.message}`);
+              }
+              dashboard.showCarbonGateResult(gateResult);
             }
-            dashboard.showCarbonGateResult(gateResult);
+          } else if (metrics.dataWarning) {
+            vscode.window.showWarningMessage(metrics.dataWarning);
           }
         }
       );
@@ -192,6 +264,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // kiro-profiler.monitor command
   context.subscriptions.push(
     vscode.commands.registerCommand('kiro-profiler.monitor', async () => {
+      getMcpServer();
       const pidStr = await vscode.window.showInputBox({
         prompt: 'Enter PID to monitor (or leave empty to launch active file)',
       });
@@ -205,9 +278,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
       const monitor = new Monitor();
+      await showDashboardState(dashboard);
 
-      monitor.on('sample', (_sample) => {
-        dashboard.showSessions([]);
+      monitor.on('sample', (sample) => {
+        dashboard.showLiveSample(sample);
       });
 
       monitor.on('alert', (alert) => {
@@ -215,7 +289,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
 
       if (pidStr && !isNaN(parseInt(pidStr))) {
-        monitor.attach(parseInt(pidStr), monitorConfig);
+        monitor.attach(parseInt(pidStr, 10), monitorConfig, {
+          filePath: `PID ${parseInt(pidStr, 10)}`,
+          language: 'javascript',
+        });
       } else {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -230,15 +307,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await monitor.launch({ filePath: editor.document.uri.fsPath, language }, monitorConfig);
       }
 
+      dashboard.startMonitoring();
+
       const stopAction = await vscode.window.showInformationMessage(
         'Monitoring started. Click Stop to end.',
         'Stop'
       );
       if (stopAction === 'Stop') {
         const session = await monitor.stop();
+        dashboard.stopMonitoring();
         session.workspacePath = workspacePath;
         await persister.save(session);
-        dashboard.showSession(session);
+        await showDashboardState(dashboard, session);
       }
     })
   );
@@ -246,9 +326,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // kiro-profiler.showDashboard command
   context.subscriptions.push(
     vscode.commands.registerCommand('kiro-profiler.showDashboard', async () => {
+      getMcpServer();
       const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
-      const sessions = await persister.list(workspacePath);
-      dashboard.showSessions(sessions);
+      const sessions = await showDashboardState(dashboard);
+      if (sessions.length > 0) {
+        try {
+          const session = await persister.load(sessions[0].id);
+          await showDashboardState(dashboard, session);
+        } catch {
+          vscode.window.showWarningMessage('Could not load the most recent profiling session.');
+        }
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kiro-profiler.loadSession', async (sessionId: string) => {
+      const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
+      try {
+        const session = await persister.load(sessionId);
+        await showDashboardState(dashboard, session);
+      } catch {
+        vscode.window.showWarningMessage('Could not load the requested session.');
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kiro-profiler.markBaseline', async (sessionId: string) => {
+      const summaries = await persister.list(workspacePath);
+      let updatedBaseline: ProfileSession | undefined;
+
+      for (const summary of summaries) {
+        if (summary.id !== sessionId && !summary.isBaseline) {
+          continue;
+        }
+
+        try {
+          const session = await persister.load(summary.id);
+          const isBaseline = session.id === sessionId;
+          if (session.isBaseline !== isBaseline) {
+            const updatedSession = { ...session, isBaseline };
+            await persister.save(updatedSession);
+            if (isBaseline) {
+              updatedBaseline = updatedSession;
+            }
+          } else if (isBaseline) {
+            updatedBaseline = session;
+          }
+        } catch {
+          // Ignore malformed or concurrently removed history entries.
+        }
+      }
+
+      if (!updatedBaseline) {
+        vscode.window.showWarningMessage('Could not mark the requested session as baseline.');
+        return;
+      }
+
+      const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
+      await showDashboardState(dashboard, updatedBaseline);
+      vscode.window.showInformationMessage('Baseline session updated.');
     })
   );
 
@@ -265,6 +403,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         vscode.window.showInformationMessage('Profiling history cleared.');
         if (DashboardPanel.currentPanel) {
           DashboardPanel.currentPanel.showSessions([]);
+          DashboardPanel.currentPanel.clearStatus();
         }
       }
     })
@@ -275,6 +414,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // When invoked from the editor context menu, falls back to the active editor's file.
   context.subscriptions.push(
     vscode.commands.registerCommand('kiro-profiler.optimizeWithLLM', async (sessionIdArg?: string) => {
+      getMcpServer();
       let session;
       let sourceCode: string;
 
@@ -325,7 +465,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       let suggestions: OptimizationSuggestion[];
       try {
-        const llmOptimizer = new LlmOptimizer(context.secrets);
         suggestions = await llmOptimizer.suggest(session, sourceCode);
       } catch (err: unknown) {
         const reason = err instanceof Error ? err.message : String(err);
@@ -341,21 +480,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Show suggestions in the dashboard
       const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
-      dashboard.showSuggestions(suggestions);
+      await showDashboardState(dashboard, session, suggestions);
 
-      // Post each suggestion to the VS Code chat panel
-      for (const suggestion of suggestions) {
+      if (suggestions.length === 0) {
+        vscode.window.showInformationMessage('No optimization suggestions were returned for this session.');
+        return;
+      }
+
+      const chatMessage = suggestions.map((suggestion, index) => {
         const impactPct = Math.round(suggestion.estimatedImpact * 100);
-        const message =
-          `**${suggestion.title}**\n\n` +
+        return `### ${index + 1}. ${suggestion.title}\n\n` +
           `${suggestion.explanation}\n\n` +
           `Estimated impact: **${impactPct}%** on \`${suggestion.affectedMetric}\`\n\n` +
           `\`\`\`diff\n${suggestion.diff}\n\`\`\``;
+      }).join('\n\n');
 
-        await vscode.commands.executeCommand('workbench.action.chat.open', {
-          query: message,
-        });
-      }
+      await vscode.commands.executeCommand('workbench.action.chat.open', {
+        query: chatMessage,
+      });
     })
   );
   // kiro-profiler.acceptSuggestion command
@@ -546,7 +688,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const config = configManager.getConfig();
       const { result, metrics } = await profileWithLiveSampling(
-        originalSession.filePath, originalSession.language, config, energyEstimator
+        originalSession.filePath, originalSession.language, config, await getEnergyEstimator()
       );
 
       const newSession = {
@@ -572,7 +714,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       await persister.save(newSession);
       const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
-      dashboard.showSession(newSession);
+      await showDashboardState(dashboard, newSession);
       dashboard.showImprovement(originalSession, newSession);
     })
   );

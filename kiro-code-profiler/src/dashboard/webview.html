@@ -22,6 +22,7 @@
   .session-item .s-file { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .session-item .s-meta { font-size: 11px; color: var(--vscode-descriptionForeground, #888); margin-top: 2px; }
   .session-item .s-baseline { font-size: 10px; color: #4ec9b0; margin-top: 2px; }
+  .session-item .s-warning { font-size: 10px; color: #f0c674; margin-top: 2px; }
 
   /* Main content */
   #main { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
@@ -31,6 +32,10 @@
           border: 1px solid var(--vscode-panel-border, #444); border-radius: 4px; padding: 12px; }
   .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
              color: var(--vscode-descriptionForeground, #888); margin-bottom: 10px; }
+  .status-card { font-size: 12px; line-height: 1.5; }
+  .status-card.warning { border-left: 3px solid #f0c674; color: #f0c674; }
+  .status-card.error { border-left: 3px solid #f48771; color: #f48771; }
+  .status-card.info { border-left: 3px solid #569cd6; color: #9cdcfe; }
 
   /* Primary metrics grid */
   #primary-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -141,6 +146,7 @@
 <!-- Main dashboard -->
 <div id="main">
   <div id="no-data">Run a profiling session to see results here.</div>
+  <div class="card status-card" id="status-card" style="display:none"></div>
 
   <!-- Primary metrics -->
   <div class="card" id="primary-card" style="display:none">
@@ -370,6 +376,25 @@
   function show(id) { const el = document.getElementById(id); if (el) el.style.display = ''; }
   function hide(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
   function setText(id, v) { const el = document.getElementById(id); if (el) el.textContent = v; }
+  function sampleCount(metrics) { return metrics && metrics.sampleCount != null ? metrics.sampleCount : ((metrics && metrics.samples) || []).length; }
+  function hasSamples(metrics) { return sampleCount(metrics) > 0; }
+  function fmtCapturedBytes(value, metrics) {
+    if (!hasSamples(metrics) && (value == null || value === 0)) return '—';
+    return fmtBytes(value || 0);
+  }
+  function showStatusBanner(message, tone) {
+    const card = document.getElementById('status-card');
+    if (!card || !message) return;
+    card.className = 'card status-card ' + (tone || 'warning');
+    card.textContent = message;
+    card.style.display = '';
+  }
+  function clearStatusBanner() {
+    const card = document.getElementById('status-card');
+    if (!card) return;
+    card.textContent = '';
+    card.style.display = 'none';
+  }
 
   function deltaClass(pct) { return pct <= 0 ? 'better' : 'worse'; }
   function deltaText(pct) { return (pct > 0 ? '+' : '') + pct.toFixed(1) + '% vs baseline'; }
@@ -466,7 +491,21 @@
 
   function renderCarbon(session, baselineSess) {
     show('carbon-card');
-    const energyMwh = session.metrics.energyMwh || 0;
+    const gateBanner = document.getElementById('gate-banner');
+    if (gateBanner) gateBanner.style.display = 'none';
+    const energyMwh = (session.metrics && session.metrics.energyMwh) || 0;
+
+    if (energyMwh === 0 && !hasSamples(session.metrics)) {
+      // Energy estimator returned 0 — process exited before first sample
+      setText('grade-letter', '?');
+      setText('grade-score', 'no data');
+      setText('gs-tagline', session.metrics.dataWarning || 'No samples collected — process may have exited instantly');
+      setText('val-carbon-run', '—'); setText('val-carbon-year', '—'); setText('val-carbon-trees', '—');
+      const strip = document.getElementById('equiv-strip');
+      if (strip) strip.innerHTML = '<div class="equiv-chip">⚠ No energy data — run a longer script or lower the sample interval</div>';
+      return;
+    }
+
     const c = carbonFromMwh(energyMwh);
 
     renderGreenScore(energyMwh);
@@ -578,7 +617,14 @@
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, w, h);
-    if (!samples || samples.length < 2) return;
+    if (!samples || samples.length < 2) {
+      // Script finished before the sampler could collect 2 data points
+      ctx.fillStyle = '#555';
+      ctx.font = `11px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('Script ran too fast for time-series (< 2 samples)', w / 2, h / 2);
+      return;
+    }
     const max = Math.max(...samples, 1);
     const min = 0;
     const range = max - min || 1;
@@ -600,14 +646,23 @@
   }
 
   // ── Render session ─────────────────────────────────────────────────────────
-  function renderSession(session) {
+  function renderSession(session, incomingBaselineSession) {
     currentSession = session;
+    if (incomingBaselineSession !== undefined) {
+      baselineSession = incomingBaselineSession || null;
+    }
     const m = session.metrics;
+    const capturedSamples = hasSamples(m);
 
     // Show cards
     document.getElementById('no-data').style.display = 'none';
     show('primary-card'); show('charts-card'); show('adv-card');
-    show('baseline-section'); show('monitor-section');
+    show('baseline-section');
+    if (session.sessionType === 'monitor') {
+      show('monitor-section');
+    } else {
+      hide('monitor-section');
+    }
 
     // Show "Optimize with LLM" button now that a session is loaded
     document.getElementById('btn-optimize-llm').style.display = '';
@@ -615,9 +670,9 @@
     // Primary metrics
     setText('val-ram', fmt(m.peakRamMb) + ' MB');
     setText('sub-ram', 'avg ' + fmt(m.avgRamMb) + ' MB');
-    setText('val-disk', fmtBytes(m.totalDiskReadBytes + m.totalDiskWriteBytes));
-    setText('sub-disk', fmtBytes(m.totalDiskReadBytes) + ' / ' + fmtBytes(m.totalDiskWriteBytes));
-    setText('val-energy', fmt(m.energyMwh, 3));
+    setText('val-disk', fmtCapturedBytes(m.totalDiskReadBytes + m.totalDiskWriteBytes, m));
+    setText('sub-disk', fmtCapturedBytes(m.totalDiskReadBytes, m) + ' / ' + fmtCapturedBytes(m.totalDiskWriteBytes, m));
+    setText('val-energy', capturedSamples ? fmt(m.energyMwh, 3) : '—');
     setText('val-time', fmtTime(m.executionTimeMs));
 
     // Baseline deltas
@@ -633,8 +688,8 @@
     // Advanced metrics
     setText('adv-gc', m.gcEvents != null ? m.gcEvents : '—');
     setText('adv-gcpause', m.gcPauseTotalMs != null ? m.gcPauseTotalMs + ' ms' : '—');
-    setText('adv-netsent', fmtBytes(m.totalNetworkBytesSent));
-    setText('adv-netrecv', fmtBytes(m.totalNetworkBytesReceived));
+    setText('adv-netsent', fmtCapturedBytes(m.totalNetworkBytesSent, m));
+    setText('adv-netrecv', fmtCapturedBytes(m.totalNetworkBytesReceived, m));
     setText('adv-fsopen', m.totalFsOpen);
     setText('adv-fsread', m.totalFsRead);
     setText('adv-fswrite', m.totalFsWrite);
@@ -658,11 +713,16 @@
     // Improvement visualization
     if (session.linkedPreSessionId) {
       show('improvement-section');
+    } else {
+      hide('improvement-section');
     }
 
     // Suggestions
     if (session.optimizationSuggestions && session.optimizationSuggestions.length > 0) {
       renderSuggestions(session.optimizationSuggestions);
+    } else {
+      hide('suggestions-section');
+      document.getElementById('suggestions-list').innerHTML = '';
     }
   }
 
@@ -688,6 +748,7 @@
         <div class="s-file">${file}</div>
         <div class="s-meta">${date}</div>
         <div class="s-meta">${fmtTime(s.executionTimeMs)} · ${fmt(s.peakRamMb)} MB</div>
+        ${s.dataStatus && s.dataStatus !== 'ok' ? '<div class="s-warning">⚠ Incomplete metrics</div>' : ''}
         ${s.isBaseline ? '<div class="s-baseline">★ Baseline</div>' : ''}
       </div>`;
     }).join('');
@@ -702,6 +763,12 @@
 
   // ── Suggestions ────────────────────────────────────────────────────────────
   function renderSuggestions(suggestions) {
+    if (!suggestions || suggestions.length === 0) {
+      hide('suggestions-section');
+      document.getElementById('suggestions-list').innerHTML = '';
+      return;
+    }
+
     show('suggestions-section');
     // Show "Accept All" only when 2+ suggestions are present
     const btnAcceptAll = document.getElementById('btn-accept-all');
@@ -861,7 +928,7 @@
     const message = event.data;
     switch (message.type) {
       case 'showSession':
-        renderSession(message.session);
+        renderSession(message.session, message.baselineSession);
         break;
       case 'showSessions':
         renderHistory(message.sessions);
@@ -906,6 +973,12 @@
         break;
       case 'carbonGateResult':
         renderGateBanner(message.result);
+        break;
+      case 'showStatus':
+        showStatusBanner(message.message, message.tone);
+        break;
+      case 'clearStatus':
+        clearStatusBanner();
         break;
     }
   });

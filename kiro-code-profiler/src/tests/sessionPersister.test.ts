@@ -131,6 +131,53 @@ describe('Property 10: Session history ordering', () => {
       { numRuns: 100 }
     );
   });
+
+  it('list() reports malformed session files without dropping valid summaries', async () => {
+    const validSession: ProfileSession = {
+      id: 'valid-session',
+      workspacePath: tmpDir,
+      filePath: '/tmp/example.ts',
+      language: 'typescript',
+      sessionType: 'profile',
+      startTime: 100,
+      endTime: 200,
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      metrics: {
+        peakRamMb: 10,
+        avgRamMb: 5,
+        totalDiskReadBytes: 0,
+        totalDiskWriteBytes: 0,
+        avgCpuPercent: 1,
+        totalNetworkBytesSent: 0,
+        totalNetworkBytesReceived: 0,
+        totalFsOpen: 0,
+        totalFsRead: 0,
+        totalFsWrite: 0,
+        totalFsClose: 0,
+        executionTimeMs: 100,
+        energyMwh: 0,
+        samples: [],
+        dataStatus: 'empty',
+      },
+      isBaseline: false,
+      optimizationSuggestions: [],
+    };
+
+    await persister.save(validSession);
+
+    const sessionsDir = path.join(tmpDir, '.kiro', 'profiler', 'sessions');
+    await fs.writeFile(path.join(sessionsDir, 'broken.json'), '{not valid json', 'utf8');
+
+    const summaries = await persister.list(tmpDir);
+    const diagnostics = persister.getLastListDiagnostics(tmpDir);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].id).toBe(validSession.id);
+    expect(summaries[0].dataStatus).toBe('empty');
+    expect(diagnostics.malformedCount).toBe(1);
+  });
 });
 
 // ─── Property 11: Session retention policy ───────────────────────────────────

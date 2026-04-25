@@ -152,7 +152,6 @@ Return only the JSON array, no other text.`;
   async suggest(session: ProfileSession, sourceCode: string): Promise<OptimizationSuggestion[]> {
     const apiKey = await resolveApiKey(this.secretStorage);
     const prompt = this.buildPrompt(session, sourceCode);
-
     const client = new OpenAI({ apiKey });
 
     const response = await client.chat.completions.create({

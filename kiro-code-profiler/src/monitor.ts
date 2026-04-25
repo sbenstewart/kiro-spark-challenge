@@ -9,6 +9,7 @@ import {
   MetricAlert,
   ProfileSession,
 } from './types';
+import { buildRuntimeCommand } from './runtimeCommandResolver';
 
 /**
  * Pure function: checks a sample against thresholds and returns any alerts to emit.
@@ -46,11 +47,19 @@ export class Monitor extends EventEmitter {
   private config: MonitorConfig | null = null;
   private samples: MetricSample[] = [];
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
+  private sessionFilePath = '';
+  private sessionLanguage: ProfileSession['language'] = 'javascript';
 
-  attach(pid: number, config: MonitorConfig): void {
+  attach(
+    pid: number,
+    config: MonitorConfig,
+    metadata?: { filePath: string; language: ProfileSession['language'] }
+  ): void {
     this.pid = pid;
     this.config = config;
     this.samples = [];
+    this.sessionFilePath = metadata?.filePath ?? `PID ${pid}`;
+    this.sessionLanguage = metadata?.language ?? 'javascript';
     this._startPolling();
   }
 
@@ -62,7 +71,10 @@ export class Monitor extends EventEmitter {
       throw new Error(`Failed to spawn process for ${request.filePath}`);
     }
 
-    this.attach(child.pid, config);
+    this.attach(child.pid, config, {
+      filePath: request.filePath,
+      language: request.language,
+    });
     return child.pid;
   }
 
@@ -80,8 +92,8 @@ export class Monitor extends EventEmitter {
     const session: ProfileSession = {
       id: uuidv4(),
       workspacePath: '',
-      filePath: '',
-      language: 'javascript',
+      filePath: this.sessionFilePath,
+      language: this.sessionLanguage,
       sessionType: 'monitor',
       startTime,
       endTime,
@@ -92,6 +104,12 @@ export class Monitor extends EventEmitter {
       isBaseline: false,
       optimizationSuggestions: [],
     };
+
+    if (n === 1) {
+      session.metrics.dataWarning = 'Only 1 monitor sample was collected before monitoring stopped.';
+    } else if (n === 0) {
+      session.metrics.dataWarning = 'No monitor samples were collected before monitoring stopped.';
+    }
 
     return session;
   }
@@ -144,15 +162,6 @@ export class Monitor extends EventEmitter {
   }
 
   private _buildCommand(request: RunRequest): { cmd: string; args: string[] } {
-    switch (request.language) {
-      case 'javascript':
-        return { cmd: request.runtimePath ?? 'node', args: [request.filePath] };
-      case 'typescript':
-        return request.runtimePath
-          ? { cmd: request.runtimePath, args: [request.filePath] }
-          : { cmd: 'npx', args: ['ts-node', request.filePath] };
-      case 'python':
-        return { cmd: request.runtimePath ?? 'python3', args: [request.filePath] };
-    }
+    return buildRuntimeCommand(request.language, request.filePath, request.runtimePath);
   }
 }

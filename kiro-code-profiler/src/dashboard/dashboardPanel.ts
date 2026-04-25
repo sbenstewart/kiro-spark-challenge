@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { CarbonGateResult, MetricAlert, OptimizationSuggestion, ProfileSession, SessionSummary } from '../types';
+import { CarbonGateResult, MetricAlert, MetricSample, OptimizationSuggestion, ProfileSession, SessionSummary } from '../types';
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined;
+  private static htmlCache: string | undefined;
   private readonly _panel: vscode.WebviewPanel;
   private _disposables: vscode.Disposable[] = [];
 
@@ -79,8 +80,8 @@ export class DashboardPanel {
     return DashboardPanel.currentPanel;
   }
 
-  showSession(session: ProfileSession): void {
-    this._panel.webview.postMessage({ type: 'showSession', session });
+  showSession(session: ProfileSession, baselineSession?: ProfileSession): void {
+    this._panel.webview.postMessage({ type: 'showSession', session, baselineSession });
   }
 
   showSessions(sessions: SessionSummary[]): void {
@@ -89,6 +90,26 @@ export class DashboardPanel {
 
   showAlert(alert: MetricAlert): void {
     this._panel.webview.postMessage({ type: 'alert', alert });
+  }
+
+  showLiveSample(sample: MetricSample): void {
+    this._panel.webview.postMessage({ type: 'liveSample', sample });
+  }
+
+  startMonitoring(): void {
+    this._panel.webview.postMessage({ type: 'monitorStart' });
+  }
+
+  stopMonitoring(): void {
+    this._panel.webview.postMessage({ type: 'monitorStop' });
+  }
+
+  showStatus(message: string, tone: 'info' | 'warning' | 'error' = 'warning'): void {
+    this._panel.webview.postMessage({ type: 'showStatus', message, tone });
+  }
+
+  clearStatus(): void {
+    this._panel.webview.postMessage({ type: 'clearStatus' });
   }
 
   showSuggestions(suggestions: OptimizationSuggestion[]): void {
@@ -108,6 +129,10 @@ export class DashboardPanel {
   }
 
   private _getHtmlContent(extensionUri: vscode.Uri): string {
+    if (DashboardPanel.htmlCache) {
+      return DashboardPanel.htmlCache;
+    }
+
     // Try out/dashboard first (packaged), fall back to src/dashboard (dev)
     const candidates = [
       vscode.Uri.joinPath(extensionUri, 'out', 'dashboard', 'webview.html'),
@@ -115,7 +140,8 @@ export class DashboardPanel {
     ];
     for (const uri of candidates) {
       try {
-        return fs.readFileSync(uri.fsPath, 'utf8');
+        DashboardPanel.htmlCache = fs.readFileSync(uri.fsPath, 'utf8');
+        return DashboardPanel.htmlCache;
       } catch {
         // try next
       }

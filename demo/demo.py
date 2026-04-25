@@ -36,7 +36,14 @@ def fib(n):
 
 # --- 3. Bubble sort (O(n^2)) on a large list ---
 def bubble_sort(arr):
-    return sorted(arr)
+    n = len(arr)
+    for i in range(n):
+        for j in range(0, n - i - 1):
+            if arr[j] > arr[j + 1]:
+                arr[j], arr[j + 1] = arr[j + 1], arr[j]
+    return arr
+
+
 # --- 4. Redundant string concatenation in a loop ---
 def build_large_string(n):
     result = ""
@@ -61,8 +68,7 @@ def compute_distances(points):
         for j in range(len(points)):
             dist = math.sqrt(
                 (points[i][0] - points[j][0]) ** 2 +
-                (points[i][1] - points[j][1]) ** 2
-            )
+                (points[i][1] - points[j][1]) ** 2)
             results.append(dist)
     return results
 

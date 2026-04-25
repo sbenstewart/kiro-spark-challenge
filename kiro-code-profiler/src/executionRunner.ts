@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { RunRequest, ExecutionResult } from './types';
+import { buildRuntimeCommand } from './runtimeCommandResolver';
 
 const DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
@@ -50,19 +51,7 @@ export class ExecutionRunner {
   }
 
   private buildCommand(request: RunRequest, filePath: string): { cmd: string; args: string[] } {
-    switch (request.language) {
-      case 'javascript':
-        return { cmd: request.runtimePath ?? 'node', args: [filePath] };
-
-      case 'typescript':
-        if (request.runtimePath) {
-          return { cmd: request.runtimePath, args: [filePath] };
-        }
-        return { cmd: 'npx', args: ['ts-node', filePath] };
-
-      case 'python':
-        return { cmd: request.runtimePath ?? 'python3', args: [filePath] };
-    }
+    return buildRuntimeCommand(request.language, filePath, request.runtimePath);
   }
 
   private spawnProcess(cmd: string, args: string[], _tempFile?: string): Promise<ExecutionResult> {

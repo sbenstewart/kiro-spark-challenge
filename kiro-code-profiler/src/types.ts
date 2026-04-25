@@ -28,6 +28,8 @@ export interface MetricSample {
   fsClose: number;
 }
 
+export type MetricDataStatus = 'ok' | 'partial' | 'empty' | 'error';
+
 export interface MetricsSummary {
   peakRamMb: number;
   avgRamMb: number;
@@ -45,6 +47,9 @@ export interface MetricsSummary {
   executionTimeMs: number;
   energyMwh: number;
   samples: MetricSample[];
+  sampleCount?: number;
+  dataStatus?: MetricDataStatus;
+  dataWarning?: string;
 }
 
 export interface OptimizationSuggestion {
@@ -83,6 +88,7 @@ export interface SessionSummary {
   avgCpuPercent: number;
   executionTimeMs: number;
   isBaseline: boolean;
+  dataStatus?: MetricDataStatus;
 }
 
 export interface BaselineComparison {
