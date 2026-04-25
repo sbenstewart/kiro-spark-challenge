@@ -13,6 +13,9 @@ import { aggregateSamples } from './metricsCollector';
 import { applyUnifiedDiff } from './diffApplier';
 import { v4 as uuidv4 } from 'uuid';
 import { OptimizationSuggestion } from './types';
+import { CarbonEthicsGate } from './ethicsGate';
+import { computeGreenScore } from './greenScorer';
+import { calculateCarbonImpact } from './carbonCalculator';
 
 // Map from sessionId → Set of rejected suggestionIds
 export const rejectedSuggestions = new Map<string, Set<string>>();
@@ -150,12 +153,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             optimizationSuggestions: suggestions,
           };
 
+          // Compute green score and carbon impact from measured energy
+          const greenScore = computeGreenScore(metrics.energyMwh);
+          const carbonImpact = calculateCarbonImpact(metrics.energyMwh);
+
           await persister.save(session);
           dashboard.showSession(session);
           dashboard.showSuggestions(suggestions);
 
           const sessions = await persister.list(workspacePath);
           dashboard.showSessions(sessions);
+
+          // Surface green score in the VS Code status notification
+          const annualG = carbonImpact.annualCo2Grams;
+          const annualStr = annualG < 1
+            ? `${(annualG * 1000).toFixed(2)}mg`
+            : `${annualG.toFixed(2)}g`;
+          vscode.window.setStatusBarMessage(
+            `EcoTrace: Grade ${greenScore.grade} (${greenScore.score}/100) · ${annualStr} CO₂/year`,
+            8000
+          );
+
+          // Ethics Logic Gate: check projected annual CO₂ against configured budget
+          const carbonBudget = config.carbonBudgetGramsPerYear;
+          if (carbonBudget > 0) {
+            const gate = new CarbonEthicsGate();
+            const gateResult = gate.check(metrics.energyMwh, carbonBudget);
+            if (gateResult.blocked) {
+              vscode.window.showWarningMessage(`🌍 Ethics Gate: ${gateResult.message}`);
+            }
+            dashboard.showCarbonGateResult(gateResult);
+          }
         }
       );
     })

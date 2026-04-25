@@ -9,6 +9,7 @@ const DEFAULTS: ProfilerConfig = {
     python: undefined,
   },
   openaiApiKey: undefined,
+  carbonBudgetGramsPerYear: 0,
 };
 
 const MIN_SAMPLE_INTERVAL_MS = 100;
@@ -73,6 +74,11 @@ export class ConfigurationManager {
 
     const openaiApiKey = src.get<string>('openaiApiKey', '');
 
+    const carbonBudgetGramsPerYear = src.get<number>(
+      'carbonBudgetGramsPerYear',
+      DEFAULTS.carbonBudgetGramsPerYear
+    );
+
     return {
       ramAlertThresholdMb,
       cpuAlertThresholdPercent,
@@ -82,6 +88,7 @@ export class ConfigurationManager {
         python: pythonRuntime,
       },
       openaiApiKey: openaiApiKey || undefined,
+      carbonBudgetGramsPerYear,
     };
   }
 }

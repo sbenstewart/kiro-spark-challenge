@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { MetricAlert, OptimizationSuggestion, ProfileSession, SessionSummary } from '../types';
+import { CarbonGateResult, MetricAlert, OptimizationSuggestion, ProfileSession, SessionSummary } from '../types';
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined;
@@ -101,6 +101,10 @@ export class DashboardPanel {
 
   showImprovement(original: ProfileSession, updated: ProfileSession): void {
     this._panel.webview.postMessage({ type: 'showImprovement', original, updated });
+  }
+
+  showCarbonGateResult(result: CarbonGateResult): void {
+    this._panel.webview.postMessage({ type: 'carbonGateResult', result });
   }
 
   private _getHtmlContent(extensionUri: vscode.Uri): string {

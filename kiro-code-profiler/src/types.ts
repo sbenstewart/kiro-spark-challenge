@@ -111,6 +111,29 @@ export interface MetricAlert {
   timestamp: number;
 }
 
+export interface CarbonImpact {
+  co2MicrogramsPerRun: number;
+  annualCo2Grams: number;
+  annualCostUsdCents: number;
+  annualDrivingMeters: number;
+  annualNetflixMinutes: number;
+}
+
+export type GreenGrade = 'A++' | 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+
+export interface GreenScore {
+  grade: GreenGrade;
+  score: number;
+  energyMwh: number;
+}
+
+export interface CarbonGateResult {
+  blocked: boolean;
+  co2GramsAnnual: number;
+  budgetGramsAnnual: number;
+  message: string;
+}
+
 export interface ProfilerConfig {
   ramAlertThresholdMb: number;
   cpuAlertThresholdPercent: number;
@@ -120,4 +143,5 @@ export interface ProfilerConfig {
     python?: string;
   };
   openaiApiKey?: string;
+  carbonBudgetGramsPerYear: number;
 }

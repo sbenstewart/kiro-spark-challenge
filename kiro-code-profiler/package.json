@@ -5,8 +5,8 @@
     "type": "git",
     "url": "https://github.com/kiro/kiro-code-profiler"
   },
-  "displayName": "Kiro Code Profiler",
-  "description": "Measure, analyze, and optimize resource usage of your code from within the IDE.",
+  "displayName": "EcoTrace — Kiro Code Profiler",
+  "description": "Profile code energy use, measure its carbon footprint, and use AI to make it greener — all inside your IDE.",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.85.0"
@@ -100,6 +100,11 @@
           "type": "string",
           "default": "",
           "markdownDescription": "OpenAI API key used for LLM optimization (`gpt-4o-mini`). Keep this private — do not commit your settings to source control."
+        },
+        "kiro-profiler.carbonBudgetGramsPerYear": {
+          "type": "number",
+          "default": 0,
+          "markdownDescription": "**Ethics Gate:** Maximum projected annual CO₂ (grams) allowed per profiled run at 100 executions/day. Set to `0` to disable. When exceeded, the dashboard shows a violation and a warning notification fires — the Ethics Logic Gate in action."
         }
       }
     }
