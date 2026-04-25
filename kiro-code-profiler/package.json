@@ -1,0 +1,134 @@
+{
+  "name": "kiro-code-profiler",
+  "publisher": "kiro",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kiro/kiro-code-profiler"
+  },
+  "displayName": "Kiro Code Profiler",
+  "description": "Measure, analyze, and optimize resource usage of your code from within the IDE.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:kiro-profiler.profile",
+    "onCommand:kiro-profiler.monitor",
+    "onCommand:kiro-profiler.showDashboard",
+    "onCommand:kiro-profiler.clearHistory",
+    "onCommand:kiro-profiler.optimizeWithLLM",
+    "onCommand:kiro-profiler.acceptAllSuggestions"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "kiro-profiler.profile",
+        "title": "Kiro Profiler: Profile"
+      },
+      {
+        "command": "kiro-profiler.monitor",
+        "title": "Kiro Profiler: Monitor"
+      },
+      {
+        "command": "kiro-profiler.showDashboard",
+        "title": "Kiro Profiler: Show Dashboard"
+      },
+      {
+        "command": "kiro-profiler.clearHistory",
+        "title": "Kiro Profiler: Clear History"
+      },
+      {
+        "command": "kiro-profiler.optimizeWithLLM",
+        "title": "Kiro Profiler: Optimize with LLM"
+      },
+      {
+        "command": "kiro-profiler.acceptSuggestion",
+        "title": "Kiro Profiler: Accept Suggestion"
+      },
+      {
+        "command": "kiro-profiler.rejectSuggestion",
+        "title": "Kiro Profiler: Reject Suggestion"
+      },
+      {
+        "command": "kiro-profiler.acceptAllSuggestions",
+        "title": "Kiro Profiler: Accept All Suggestions"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "kiro-profiler.optimizeWithLLM",
+          "when": "resourceLangId == javascript || resourceLangId == typescript || resourceLangId == python",
+          "group": "kiro-profiler"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Kiro Code Profiler",
+      "properties": {
+        "kiro-profiler.ramAlertThresholdMb": {
+          "type": "number",
+          "default": 512,
+          "description": "RAM usage threshold in MB above which an alert is triggered during monitoring."
+        },
+        "kiro-profiler.cpuAlertThresholdPercent": {
+          "type": "number",
+          "default": 80,
+          "description": "CPU usage threshold (0–100) above which an alert is triggered during monitoring."
+        },
+        "kiro-profiler.sampleIntervalMs": {
+          "type": "number",
+          "default": 1000,
+          "minimum": 100,
+          "description": "Interval in milliseconds between metric samples. Minimum value is 100 ms."
+        },
+        "kiro-profiler.runtimePaths.node": {
+          "type": "string",
+          "default": null,
+          "description": "Path to the Node.js executable. Leave empty to use the system default."
+        },
+        "kiro-profiler.runtimePaths.python": {
+          "type": "string",
+          "default": null,
+          "description": "Path to the Python executable. Leave empty to use the system default."
+        },
+        "kiro-profiler.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "OpenAI API key used for LLM optimization (`gpt-4o-mini`). Keep this private — do not commit your settings to source control."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "vitest --run",
+    "copy-assets": "mkdir -p out/dashboard && cp src/dashboard/webview.html out/dashboard/webview.html",
+    "bundle": "node esbuild.js",
+    "package": "npm run copy-assets && npm run bundle && vsce package --allow-missing-repository"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fast-check": "^3.15.0",
+    "openai": "^6.34.0",
+    "pidusage": "^3.0.2",
+    "systeminformation": "^5.22.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pidusage": "^2.0.5",
+    "@types/uuid": "^10.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  }
+}
