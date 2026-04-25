@@ -110,28 +110,54 @@ Right-click any JS/TS/Python file → **Optimize with LLM** to get GPT-4o-mini s
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    User[Developer in Kiro / VS Code] --> Commands[Command Palette / Editor Context Menu]
+    Commands --> Extension[extension.ts<br/>activation + command orchestration]
+
+    Extension --> Config[configurationManager.ts<br/>settings + runtime paths]
+    Extension --> Dashboard[dashboard/dashboardPanel.ts<br/>webview bridge]
+    Dashboard --> Webview[dashboard/webview.html<br/>history + charts + carbon UI]
+
+    Extension --> ProfileFlow[Profile Flow]
+    ProfileFlow --> RuntimeResolver[runtimeCommandResolver.ts<br/>JS / TS / Python command selection]
+    ProfileFlow --> Metrics[metricsCollector.ts<br/>pidusage + systeminformation sampling]
+    ProfileFlow --> Energy[energyEstimator.ts<br/>CPU/TDP to mWh]
+    ProfileFlow --> Green[greenScorer.ts<br/>A++ to F scoring]
+    ProfileFlow --> Carbon[carbonCalculator.ts<br/>CO2 + yearly projection]
+    ProfileFlow --> Ethics[ethicsGate.ts<br/>carbon budget guard]
+    ProfileFlow --> RuleOpt[optimizer.ts<br/>rule-based suggestions]
+    ProfileFlow --> Sessions[sessionPersister.ts<br/>JSON session storage]
+
+    Extension --> Monitor[monitor.ts<br/>live PID sampling + alerts]
+    Monitor --> Dashboard
+
+    Extension --> LLMFlow[LLM Optimization Flow]
+    LLMFlow --> LlmOpt[llmOptimizer.ts<br/>OpenAI suggestion generation]
+    LLMFlow --> Diff[diffApplier.ts<br/>unified diff apply]
+    LLMFlow --> Sessions
+    LLMFlow --> Dashboard
+
+    Extension --> Runner[executionRunner.ts<br/>generic process execution]
+    Runner --> RuntimeResolver
+
+    Extension --> MCP[mcp/server.ts<br/>JSON-RPC MCP server]
+    MCP --> Sessions
+    MCP --> Runner
+    MCP --> RuleOpt
+    MCP --> LlmOpt
 ```
-VS Code / Kiro Extension Host
-│
-├── extension.ts          — Command handlers, profile orchestration, Ethics Gate
-├── executionRunner.ts    — Spawns JS/TS/Python processes
-├── metricsCollector.ts   — Real-time PID metrics (pidusage + systeminformation)
-├── energyEstimator.ts    — mWh from CPU × TDP × time (system TDP via si.cpu())
-├── carbonCalculator.ts   — mWh → CO₂ → real-world equivalents (EPA eGRID 2022)
-├── greenScorer.ts        — A++ → F grade + 0–100 score from mWh
-├── ethicsGate.ts         — CarbonEthicsGate: blocks if annual CO₂ > budget
-├── optimizer.ts          — Rule-based optimization suggestions
-├── llmOptimizer.ts       — GPT-4o-mini integration with unified diff output
-├── diffApplier.ts        — Fuzzy unified diff parser and applier
-├── sessionPersister.ts   — JSON session storage (.kiro/profiler/sessions/)
-├── baselineComparison.ts — Delta computation between sessions
-├── monitor.ts            — Continuous monitoring with alert events
-├── configurationManager.ts — VS Code settings with carbon budget
-├── dashboard/
-│   ├── dashboardPanel.ts — WebView controller
-│   └── webview.html      — Full dashboard UI (Green Score, carbon, equivalents, gate)
-└── mcp/server.ts         — JSON-RPC MCP server for Claude integration
-```
+
+### Module Map
+
+- `extension.ts`: central activation point, command registration, profiling flow, re-profile flow, dashboard sync.
+- `runtimeCommandResolver.ts`: fast runtime selection, especially for TypeScript where local binaries are preferred over `npx ts-node`.
+- `executionRunner.ts` and `monitor.ts`: process launch paths for batch profiling and live monitoring.
+- `metricsCollector.ts`, `energyEstimator.ts`, `greenScorer.ts`, `carbonCalculator.ts`, `ethicsGate.ts`: measurement and sustainability analysis pipeline.
+- `optimizer.ts`, `llmOptimizer.ts`, `diffApplier.ts`: suggestion generation and application pipeline.
+- `sessionPersister.ts` and `baselineComparison.ts`: session history, baseline tracking, and comparisons.
+- `dashboard/dashboardPanel.ts` and `dashboard/webview.html`: rendered dashboard, alerts, charts, baseline view, and suggestion UI.
+- `mcp/server.ts`: external tool interface for MCP-based integrations.
 
 **Supported languages:** JavaScript, TypeScript, Python
 
