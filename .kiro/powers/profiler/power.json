@@ -1,0 +1,15 @@
+{
+  "name": "kiro-code-profiler",
+  "version": "0.0.1",
+  "description": "Profiler MCP server + steering docs for kiro-code-profiler",
+  "mcp": {
+    "command": "node",
+    "args": ["./out/mcp/server.js"],
+    "env": {}
+  },
+  "steering": [
+    "../../steering/architecture.md",
+    "../../steering/llm-optimization.md",
+    "../../steering/bugfix-workflow.md"
+  ]
+}

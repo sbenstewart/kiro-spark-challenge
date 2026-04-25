@@ -23,6 +23,12 @@ import { applyUnifiedDiff } from '../diffApplier';
 // variable references allowed inside the factory).
 // ---------------------------------------------------------------------------
 
+// Hoisted mock control for OpenAI — must be declared with vi.hoisted so it's
+// available when vi.mock factories run (which are hoisted before imports).
+const openAiMock = vi.hoisted(() => ({
+  create: vi.fn().mockResolvedValue({ choices: [{ message: { content: '[]' } }] }),
+}));
+
 vi.mock('vscode', () => ({
   window: {
     activeTextEditor: undefined as unknown,
@@ -54,13 +60,21 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, spawn: vi.fn(), execSync: vi.fn() };
 });
 
+vi.mock('openai', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    chat: { completions: { create: (...args: unknown[]) => openAiMock.create(...args) } },
+  })),
+  OpenAI: vi.fn().mockImplementation(() => ({
+    chat: { completions: { create: (...args: unknown[]) => openAiMock.create(...args) } },
+  })),
+}));
+
 import { LlmOptimizer } from '../llmOptimizer';
 import * as vscode from 'vscode';
 import * as cp from 'child_process';
 import { EventEmitter } from 'events';
 
 // Typed references to the mocked vscode functions for use in tests
-const mockSelectChatModels = vscode.lm.selectChatModels as ReturnType<typeof vi.fn>;
 const mockSpawn = cp.spawn as ReturnType<typeof vi.fn>;
 
 /** Helper: create a fake child process that emits an error event */
@@ -317,38 +331,49 @@ describe('12.2 No prior session for file → warning shown', () => {
 describe('12.3 LLM API throws → error message shown, no file changes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset to default (success) mock between tests
+    openAiMock.create.mockResolvedValue({
+      choices: [{ message: { content: '[]' } }],
+    });
   });
 
-  it('LlmOptimizer.suggest propagates errors when no models are available', async () => {
-    // Simulate kiro-cli not found / launch failure
-    mockSpawn.mockReturnValue(makeFakeSpawnError(new Error('spawn kiro-cli ENOENT')));
+  it('LlmOptimizer.suggest propagates errors when the OpenAI client throws a connection error', async () => {
+    // Simulate OpenAI SDK throwing a connection/auth error
+    process.env.OPENAI_API_KEY = 'test-key';
+    openAiMock.create.mockRejectedValueOnce(new Error('Connection refused'));
 
     const optimizer = new LlmOptimizer();
     const session = makeSession();
 
-    await expect(optimizer.suggest(session, 'const x = 1;')).rejects.toThrow(
-      'Failed to launch kiro-cli'
-    );
+    await expect(optimizer.suggest(session, 'const x = 1;')).rejects.toThrow('Connection refused');
+    delete process.env.OPENAI_API_KEY;
+    vi.doUnmock('openai');
   });
 
-  it('LlmOptimizer.suggest propagates errors from the model sendRequest call', async () => {
-    // Simulate kiro-cli exiting non-zero with an error message (e.g. rate limit)
-    mockSpawn.mockReturnValue(makeFakeSpawnExit(1, 'Rate limit exceeded'));
+  it('LlmOptimizer.suggest propagates errors from the OpenAI API call (e.g. rate limit)', async () => {
+    // Simulate OpenAI SDK throwing a rate limit error
+    process.env.OPENAI_API_KEY = 'test-key';
+    openAiMock.create.mockRejectedValueOnce(new Error('Rate limit exceeded'));
 
     const optimizer = new LlmOptimizer();
     const session = makeSession();
 
     await expect(optimizer.suggest(session, 'const x = 1;')).rejects.toThrow('Rate limit exceeded');
+    delete process.env.OPENAI_API_KEY;
+    vi.doUnmock('openai');
   });
 
-  it('LlmOptimizer.suggest propagates timeout errors', async () => {
-    // Simulate kiro-cli exiting non-zero with a timeout message
-    mockSpawn.mockReturnValue(makeFakeSpawnExit(1, 'Request timed out'));
+  it('LlmOptimizer.suggest propagates timeout errors from the OpenAI API', async () => {
+    // Simulate OpenAI SDK throwing a timeout error
+    process.env.OPENAI_API_KEY = 'test-key';
+    openAiMock.create.mockRejectedValueOnce(new Error('Request timed out'));
 
     const optimizer = new LlmOptimizer();
     const session = makeSession();
 
     await expect(optimizer.suggest(session, 'const x = 1;')).rejects.toThrow('Request timed out');
+    delete process.env.OPENAI_API_KEY;
+    vi.doUnmock('openai');
   });
 
   it('error message builder includes the error reason', () => {
@@ -370,10 +395,12 @@ describe('12.3 LLM API throws → error message shown, no file changes', () => {
   });
 
   it('no file changes occur when LLM throws — suggest rejects before any write', async () => {
-    // Simulate kiro-cli launch failure
-    mockSpawn.mockReturnValue(makeFakeSpawnError(new Error('spawn kiro-cli ENOENT')));
+    // Simulate OpenAI SDK throwing before any diff is applied
+    process.env.OPENAI_API_KEY = 'test-key';
+    openAiMock.create.mockRejectedValueOnce(new Error('API error'));
 
-    const optimizer = new LlmOptimizer();
+    const { LlmOptimizer: FreshLlmOptimizer } = await import('../llmOptimizer');
+    const optimizer = new FreshLlmOptimizer();
     const session = makeSession();
 
     // Capture whether applyUnifiedDiff would be called (it should not be)
@@ -390,6 +417,7 @@ describe('12.3 LLM API throws → error message shown, no file changes', () => {
     expect(diffApplied).toBe(false);
     // Content is unchanged
     expect(originalContent).toBe('const x = 1;');
+    delete process.env.OPENAI_API_KEY;
   });
 });
 

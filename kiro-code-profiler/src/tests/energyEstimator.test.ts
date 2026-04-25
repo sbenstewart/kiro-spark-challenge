@@ -13,9 +13,12 @@ describe('EnergyEstimator', () => {
       expect(result).toBeCloseTo(expected, 10);
     });
 
-    it('returns 0 mWh when CPU is 0%', () => {
+    it('applies 10% idle floor when CPU is 0%', () => {
+      // Architecture spec: formula uses max(avgCpuPercent, 10) — a running process
+      // always consumes at least 10% TDP worth of energy.
       const estimator = new (EnergyEstimator as any)(15);
-      expect(estimator.estimate(0, 1000, 15)).toBe(0);
+      const expected = (15 * (10 / 100) * 1000) / 3_600_000 * 1000;
+      expect(estimator.estimate(0, 1000, 15)).toBeCloseTo(expected, 10);
     });
 
     it('calculates correctly at 100% CPU', () => {

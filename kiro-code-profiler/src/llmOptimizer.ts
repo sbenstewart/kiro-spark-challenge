@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { OptimizationSuggestion, ProfileSession } from './types';
 import { ConfigurationManager } from './configurationManager';
+import OpenAI from 'openai';
 
 const MAX_SOURCE_CHARS = 32_000;
 const TRUNCATION_MARKER = '// [truncated]';
@@ -152,9 +153,6 @@ Return only the JSON array, no other text.`;
     const apiKey = await resolveApiKey(this.secretStorage);
     const prompt = this.buildPrompt(session, sourceCode);
 
-    // Lazy-load openai to keep the module testable without the SDK
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { OpenAI } = require('openai');
     const client = new OpenAI({ apiKey });
 
     const response = await client.chat.completions.create({
