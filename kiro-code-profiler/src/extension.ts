@@ -7,6 +7,7 @@ import { Optimizer } from './optimizer';
 import { Monitor } from './monitor';
 import { ConfigurationManager } from './configurationManager';
 import { DashboardPanel } from './dashboard/dashboardPanel';
+import { GreenOptimizerPanel } from './greenOptimizer/greenPanel';
 import { aggregateSamples } from './metricsCollector';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -170,6 +171,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           DashboardPanel.currentPanel.showSessions([]);
         }
       }
+    })
+  );
+
+  // kiro-profiler.greenOptimize command — Green Code Optimizer
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kiro-profiler.greenOptimize', () => {
+      GreenOptimizerPanel.createOrShow(context.extensionUri);
     })
   );
 }

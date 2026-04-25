@@ -36,8 +36,8 @@ export class ExecutionRunner {
     }
 
     const ext = this.extensionFor(request.language);
-    const tmpPath = path.join(os.tmpdir(), `kiro-profiler-${Date.now()}${ext}`);
-    fs.writeFileSync(tmpPath, request.selectedCode, 'utf8');
+    // Use in-memory execution instead of writing to a file.
+    // Use in-memory execution instead of writing to a file.
     return tmpPath;
   }
 

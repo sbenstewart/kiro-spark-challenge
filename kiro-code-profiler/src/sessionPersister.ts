@@ -98,7 +98,7 @@ export class SessionPersister {
         .filter((f) => f.endsWith('.json'))
         .map(async (f) => {
           try {
-            const raw = await fs.readFile(path.join(dir, f), 'utf-8');
+            const stats = await fs.stat(path.join(dir, f)); if (stats.mtimeMs < cutoff) { await fs.unlink(path.join(dir, f)); }
             const session = JSON.parse(raw) as ProfileSession;
             if (session.startTime < cutoff) {
               await fs.unlink(path.join(dir, f));
