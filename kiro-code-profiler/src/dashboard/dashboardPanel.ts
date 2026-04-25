@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import { MetricAlert, OptimizationSuggestion, ProfileSession, SessionSummary } from '../types';
+// esbuild inlines this as a string via loader: { '.html': 'text' } — no runtime file read
+import webviewHtml from './webview.html';
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined;
@@ -99,20 +100,12 @@ export class DashboardPanel {
     this._panel.webview.postMessage({ type: 'showImprovement', original, updated });
   }
 
-  private _getHtmlContent(extensionUri: vscode.Uri): string {
-    // Try out/dashboard first (packaged), fall back to src/dashboard (dev)
-    const candidates = [
-      vscode.Uri.joinPath(extensionUri, 'out', 'dashboard', 'webview.html'),
-      vscode.Uri.joinPath(extensionUri, 'src', 'dashboard', 'webview.html'),
-    ];
-    for (const uri of candidates) {
-      try {
-        return fs.readFileSync(uri.fsPath, 'utf8');
-      } catch {
-        // try next
-      }
-    }
-    return '<html><body><p>Dashboard failed to load.</p></body></html>';
+  sendBaseline(session: ProfileSession): void {
+    this._panel.webview.postMessage({ type: 'baselineUpdated', session });
+  }
+
+  private _getHtmlContent(_extensionUri: vscode.Uri): string {
+    return webviewHtml;
   }
 
   dispose(): void {

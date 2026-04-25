@@ -32,6 +32,28 @@
   .card h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
              color: var(--vscode-descriptionForeground, #888); margin-bottom: 10px; }
 
+  /* Carbon grade badge */
+  .carbon-grade { display:inline-flex; align-items:center; justify-content:center;
+    width:36px; height:36px; border-radius:50%; font-size:18px; font-weight:900;
+    margin-left:10px; flex-shrink:0; }
+  .grade-a { background:#1a3a2a; color:#4ec9b0; border:2px solid #4ec9b0; }
+  .grade-b { background:#1a2e1a; color:#6abf69; border:2px solid #6abf69; }
+  .grade-c { background:#3a3010; color:#d4b44a; border:2px solid #d4b44a; }
+  .grade-d { background:#3a2010; color:#d4844a; border:2px solid #d4844a; }
+  .grade-f { background:#3a1010; color:#f48771; border:2px solid #f48771; }
+  .carbon-header-row { display:flex; align-items:center; margin-bottom:10px; }
+  .carbon-header-row h3 { margin-bottom:0; flex:1; }
+  .carbon-controls { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .carbon-controls label { font-size:11px; color:var(--vscode-descriptionForeground,#888); }
+  .carbon-controls select, .carbon-controls input[type=number] {
+    background:var(--vscode-input-background,#3c3c3c);
+    color:var(--vscode-input-foreground,#d4d4d4);
+    border:1px solid var(--vscode-input-border,#555);
+    border-radius:3px; padding:3px 6px; font-size:11px; outline:none; }
+  .equivalency-row { display:flex; gap:10px; flex-wrap:wrap; margin-top:8px; }
+  .equiv-chip { background:var(--vscode-input-background,#3c3c3c); border-radius:12px;
+    padding:4px 10px; font-size:11px; color:var(--vscode-descriptionForeground,#aaa); }
+
   /* Primary metrics grid */
   #primary-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .metric-box { background: var(--vscode-input-background, #3c3c3c); border-radius: 4px; padding: 10px; text-align: center; }
@@ -153,7 +175,25 @@
 
   <!-- Carbon impact -->
   <div class="card" id="carbon-card" style="display:none">
-    <h3>🌍 Carbon Impact</h3>
+    <div class="carbon-header-row">
+      <h3>🌍 Carbon Impact</h3>
+      <div class="carbon-grade grade-f" id="carbon-grade-badge">?</div>
+    </div>
+    <div class="carbon-controls">
+      <label>Grid region:</label>
+      <select id="carbon-region-select">
+        <option value="386">US Average (EPA eGRID 2022) — 386 g/kWh</option>
+        <option value="386">AWS us-east-1 N. Virginia — 386 g/kWh</option>
+        <option value="136">AWS us-west-2 Oregon — 136 g/kWh</option>
+        <option value="279">AWS eu-west-1 Ireland — 279 g/kWh</option>
+        <option value="493">AWS ap-southeast-1 Singapore — 493 g/kWh</option>
+        <option value="255">EU Average (EEA 2022) — 255 g/kWh</option>
+        <option value="475">Global Average (IEA 2023) — 475 g/kWh</option>
+      </select>
+      <label style="margin-left:8px;">Production scale:</label>
+      <input type="number" id="carbon-runs-input" value="100" min="1" max="1000000000" style="width:90px;" />
+      <label>runs/day</label>
+    </div>
     <div id="carbon-metrics" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;">
       <div class="metric-box">
         <div class="label">Single Run CO₂e</div>
@@ -174,11 +214,19 @@
         <div class="delta" id="delta-carbon-trees"></div>
       </div>
     </div>
+    <div class="equivalency-row" id="equiv-row" style="display:none">
+      <span class="equiv-chip" id="equiv-car">🚗 —</span>
+      <span class="equiv-chip" id="equiv-phone">📱 —</span>
+      <span class="equiv-chip" id="equiv-led">💡 —</span>
+    </div>
     <div id="carbon-bar-wrap" style="margin-top:8px;">
-      <div class="chart-label">Annual CO₂e over time (projected, kg)</div>
+      <div class="chart-label">Annual CO₂e over time (projected, kg) · Source: EPA eGRID 2022</div>
       <canvas id="chart-carbon" height="80"></canvas>
     </div>
     <div id="carbon-saving" style="display:none;margin-top:10px;padding:8px;background:#1a3a2a;border-radius:4px;font-size:12px;color:#4ec9b0;"></div>
+    <div style="margin-top:6px;font-size:10px;color:#555;">
+      ⓘ CO₂ intensity: EPA eGRID 2022 by region · Tree absorption: USDA Forest Service ~21 kg CO₂/tree/year · Car: EPA 404 g CO₂/mile · Phone charge: 8.22 g CO₂
+    </div>
   </div>
 
   <!-- Time-series charts -->
@@ -325,48 +373,106 @@
   function deltaText(pct) { return (pct > 0 ? '+' : '') + pct.toFixed(1) + '% vs baseline'; }
 
   // ── Carbon impact ──────────────────────────────────────────────────────────
-  const GRID_CARBON_G_PER_KWH = 475.0;  // IEA 2023 global average
   const LAPTOP_TDP_W = 15.0;
-  const RUNS_PER_DAY = 100;
   const DAYS_PER_YEAR = 365;
+  // EPA eGRID 2022 + IEA 2023 regional carbon intensity (g CO₂/kWh)
+  const GRADE_THRESHOLDS = [
+    { grade: 'A', max: 0.001, cls: 'grade-a' },
+    { grade: 'B', max: 0.01,  cls: 'grade-b' },
+    { grade: 'C', max: 0.1,   cls: 'grade-c' },
+    { grade: 'D', max: 1.0,   cls: 'grade-d' },
+    { grade: 'F', max: Infinity, cls: 'grade-f' },
+  ];
+
+  function getGridIntensity() {
+    const sel = document.getElementById('carbon-region-select');
+    return sel ? parseFloat(sel.value) : 386;
+  }
+
+  function getRunsPerDay() {
+    const inp = document.getElementById('carbon-runs-input');
+    const v = inp ? parseInt(inp.value) : 100;
+    return isNaN(v) || v < 1 ? 100 : v;
+  }
 
   function carbonGrams(executionTimeMs) {
     const joules = LAPTOP_TDP_W * (executionTimeMs / 1000);
     const kwh = joules / 3_600_000;
-    return kwh * GRID_CARBON_G_PER_KWH;
+    return kwh * getGridIntensity();
+  }
+
+  function getCarbonGrade(grams) {
+    for (const t of GRADE_THRESHOLDS) {
+      if (grams < t.max) return t;
+    }
+    return GRADE_THRESHOLDS[GRADE_THRESHOLDS.length - 1];
+  }
+
+  function renderEquivalencies(annualKg) {
+    const row = document.getElementById('equiv-row');
+    if (!row) return;
+    // Car: EPA 404 g CO₂/mile → 1609 m/mile
+    const carMeters = (annualKg * 1000 / 404) * 1609;
+    const carText = carMeters < 1000
+      ? `🚗 ${carMeters.toFixed(0)} m driven/yr`
+      : `🚗 ${(carMeters / 1000).toFixed(2)} km driven/yr`;
+    // Phone charge: ~8.22 g CO₂ each
+    const phones = (annualKg * 1000) / 8.22;
+    const phoneText = phones < 1
+      ? `📱 ${(phones * 100).toFixed(1)}% of 1 charge/yr`
+      : `📱 ${phones.toFixed(1)} phone charges/yr`;
+    // LED bulb (10W): 1 kWh = 100hrs → 1 kg CO₂ ≈ 2.6 kWh ≈ 260 hrs @ 10W
+    const ledHrs = (annualKg / 0.386) * 100;
+    const ledText = ledHrs < 1
+      ? `💡 ${(ledHrs * 60).toFixed(0)} min LED/yr`
+      : `💡 ${ledHrs.toFixed(1)} hrs LED/yr`;
+    document.getElementById('equiv-car').textContent = carText;
+    document.getElementById('equiv-phone').textContent = phoneText;
+    document.getElementById('equiv-led').textContent = ledText;
+    row.style.display = 'flex';
   }
 
   function renderCarbon(session, baselineSess) {
     show('carbon-card');
     const g = carbonGrams(session.metrics.executionTimeMs);
-    const annualKg = (g * RUNS_PER_DAY * DAYS_PER_YEAR) / 1000;
-    const trees = annualKg / 21;  // avg tree absorbs ~21 kg CO2/year
+    const runsPerDay = getRunsPerDay();
+    const annualKg = (g * runsPerDay * DAYS_PER_YEAR) / 1000;
+    const trees = annualKg / 21;
 
-    const gDisplay = g < 1 ? (g * 1000).toFixed(2) : g.toFixed(4);
-    const gUnit = g < 1 ? 'mg CO₂e' : 'g CO₂e';
+    // Grade badge
+    const gradeInfo = getCarbonGrade(g);
+    const badge = document.getElementById('carbon-grade-badge');
+    if (badge) {
+      badge.textContent = gradeInfo.grade;
+      badge.className = 'carbon-grade ' + gradeInfo.cls;
+    }
+
+    const gDisplay = g < 0.001 ? (g * 1_000_000).toFixed(2) : g < 1 ? (g * 1000).toFixed(2) : g.toFixed(4);
+    const gUnit = g < 0.001 ? 'μg CO₂e' : g < 1 ? 'mg CO₂e' : 'g CO₂e';
     setText('val-carbon-run', gDisplay);
     setText('sub-carbon-run', gUnit);
-    setText('val-carbon-year', annualKg.toFixed(2) + ' kg');
-    setText('val-carbon-trees', trees < 0.1 ? trees.toFixed(3) : trees.toFixed(1));
+    setText('val-carbon-year', annualKg < 0.001 ? (annualKg * 1000).toFixed(3) + ' g' : annualKg.toFixed(3) + ' kg');
+    setText('sub-carbon-year', `at ${runsPerDay.toLocaleString()} runs/day`);
+    setText('val-carbon-trees', trees < 0.001 ? trees.toExponential(2) : trees < 0.1 ? trees.toFixed(4) : trees.toFixed(2));
 
-    // Project monthly carbon over 12 months for the bar chart
+    renderEquivalencies(annualKg);
+
     const monthly = Array.from({ length: 12 }, (_, i) => annualKg / 12 * (i + 1));
-    setTimeout(() => drawBarChart('chart-carbon', monthly, '#4ec9b0'), 0);
+    setTimeout(() => drawBarChart('chart-carbon', monthly, gradeInfo.cls === 'grade-a' || gradeInfo.cls === 'grade-b' ? '#4ec9b0' : gradeInfo.cls === 'grade-c' ? '#d4b44a' : '#f48771'), 0);
 
-    // Show saving vs baseline
     const savingEl = document.getElementById('carbon-saving');
     if (baselineSess) {
       const baseG = carbonGrams(baselineSess.metrics.executionTimeMs);
+      const baseAnnualKg = (baseG * runsPerDay * DAYS_PER_YEAR) / 1000;
       const savedG = baseG - g;
-      const savedAnnualKg = (savedG * RUNS_PER_DAY * DAYS_PER_YEAR) / 1000;
-      // Carbon deltas (lower is better, so invert sign for deltaClass)
+      const savedAnnualKg = baseAnnualKg - annualKg;
       renderDelta('delta-carbon-run', g, baseG);
-      renderDelta('delta-carbon-year', annualKg, baseG * RUNS_PER_DAY * DAYS_PER_YEAR / 1000);
-      // Trees: more trees needed = worse, fewer = better
-      renderDelta('delta-carbon-trees', trees, (baseG * RUNS_PER_DAY * DAYS_PER_YEAR / 1000) / 21);
+      renderDelta('delta-carbon-year', annualKg, baseAnnualKg);
+      renderDelta('delta-carbon-trees', trees, baseAnnualKg / 21);
       if (savedG > 0) {
+        const carSaved = (savedAnnualKg * 1000 / 404) * 1.609;
         savingEl.style.display = 'block';
-        savingEl.textContent = `✓ Saves ${savedG.toFixed(4)} g CO₂e per run vs baseline → ${savedAnnualKg.toFixed(3)} kg/year saved (≈ ${(savedAnnualKg / 21).toFixed(3)} trees)`;
+        savingEl.textContent = `✓ Saves ${savedG < 0.001 ? (savedG*1e6).toFixed(2)+'μg' : savedG < 1 ? (savedG*1000).toFixed(2)+'mg' : savedG.toFixed(4)+'g'} CO₂e/run vs baseline → ${savedAnnualKg.toFixed(3)} kg/yr saved ≈ ${carSaved.toFixed(2)} km of driving`;
       } else {
         savingEl.style.display = 'none';
       }
@@ -583,11 +689,13 @@
     vscode.postMessage({ type: 'rejectSuggestion', suggestionId: id });
   };
 
-  window.requestLLMOptimization = function() {
+  function requestLLMOptimization() {
     if (currentSession) {
       vscode.postMessage({ type: 'requestLLMOptimization', sessionId: currentSession.id });
     }
-  };
+  }
+
+  window.requestLLMOptimization = requestLLMOptimization;
 
   // ── Button wiring ──────────────────────────────────────────────────────────
   document.getElementById('btn-optimize-llm').addEventListener('click', requestLLMOptimization);
@@ -684,6 +792,14 @@
     document.getElementById('settings-body').classList.toggle('open');
   });
 
+  // Re-render carbon when region or scale changes
+  document.getElementById('carbon-region-select').addEventListener('change', function() {
+    if (currentSession) renderCarbon(currentSession, baselineSession);
+  });
+  document.getElementById('carbon-runs-input').addEventListener('input', function() {
+    if (currentSession) renderCarbon(currentSession, baselineSession);
+  });
+
   document.getElementById('btn-save-api-key').addEventListener('click', function() {
     const key = document.getElementById('input-api-key').value.trim();
     if (key) {
@@ -729,6 +845,7 @@
         status.style.display = 'block';
         setTimeout(() => { status.style.display = 'none'; }, 3000);
         break;
+      case 'baselineUpdated':
         baselineSession = message.session;
         if (currentSession) renderSession(currentSession);
         break;

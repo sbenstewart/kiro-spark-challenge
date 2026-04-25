@@ -438,6 +438,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     })
   );
+  // kiro-profiler.markBaseline command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kiro-profiler.markBaseline', async (sessionId: string) => {
+      try {
+        const session = await persister.load(sessionId);
+        session.isBaseline = true;
+        await persister.save(session);
+        if (DashboardPanel.currentPanel) {
+          DashboardPanel.currentPanel.sendBaseline(session);
+        }
+        const sessions = await persister.list(workspacePath);
+        if (DashboardPanel.currentPanel) {
+          DashboardPanel.currentPanel.showSessions(sessions);
+        }
+      } catch {
+        vscode.window.showErrorMessage('Could not mark session as baseline.');
+      }
+    })
+  );
+
+  // kiro-profiler.loadSession command
+  context.subscriptions.push(
+    vscode.commands.registerCommand('kiro-profiler.loadSession', async (sessionId: string) => {
+      try {
+        const session = await persister.load(sessionId);
+        const dashboard = DashboardPanel.createOrShow(context.extensionUri, context.secrets);
+        dashboard.showSession(session);
+        if (session.optimizationSuggestions?.length) {
+          dashboard.showSuggestions(session.optimizationSuggestions);
+        }
+      } catch {
+        vscode.window.showErrorMessage('Could not load session.');
+      }
+    })
+  );
+
   // kiro-profiler.acceptAllSuggestions command
   context.subscriptions.push(
     vscode.commands.registerCommand('kiro-profiler.acceptAllSuggestions', async () => {
