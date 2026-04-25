@@ -1,6 +1,6 @@
 export interface RunRequest {
   filePath: string;
-  language: 'javascript' | 'typescript' | 'python';
+  language: "javascript" | "typescript" | "python";
   runtimePath?: string;
   selectedCode?: string;
 }
@@ -51,7 +51,7 @@ export interface OptimizationSuggestion {
   title: string;
   explanation: string;
   estimatedImpact: number;
-  affectedMetric: 'ram' | 'cpu' | 'energy' | 'disk' | 'network';
+  affectedMetric: "ram" | "cpu" | "energy" | "disk" | "network";
   diff: string;
 }
 
@@ -59,8 +59,8 @@ export interface ProfileSession {
   id: string;
   workspacePath: string;
   filePath: string;
-  language: 'javascript' | 'typescript' | 'python';
-  sessionType: 'profile' | 'monitor';
+  language: "javascript" | "typescript" | "python";
+  sessionType: "profile" | "monitor";
   startTime: number;
   endTime: number;
   exitCode: number;
@@ -75,7 +75,7 @@ export interface ProfileSession {
 export interface SessionSummary {
   id: string;
   filePath: string;
-  sessionType: 'profile' | 'monitor';
+  sessionType: "profile" | "monitor";
   startTime: number;
   endTime: number;
   peakRamMb: number;
@@ -104,7 +104,7 @@ export interface MonitorConfig {
 }
 
 export interface MetricAlert {
-  type: 'ram' | 'cpu';
+  type: "ram" | "cpu";
   value: number;
   threshold: number;
   timestamp: number;
@@ -118,4 +118,13 @@ export interface ProfilerConfig {
     node?: string;
     python?: string;
   };
+}
+
+export interface EcoSpecPrediction {
+  energy_wh: number;
+  confidence: number;
+  complexity_label: string;
+  top_driver: string;
+  warning_level: "low" | "medium" | "high";
+  error?: string;
 }
