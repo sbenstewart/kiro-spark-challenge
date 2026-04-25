@@ -1,0 +1,9 @@
+name: profile-this-file
+trigger: userTriggered
+description: >
+  Manually trigger a profile run on the currently active file.
+steps:
+  - type: vscode-command
+    command: kiro-profiler.profile
+    args:
+      filePath: "{{activeFile}}"

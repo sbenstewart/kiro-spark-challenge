@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ExecutionRunner } from './executionRunner';
 import { MetricsCollector } from './metricsCollector';
+import { McpServer } from './mcp/server';
 import { EnergyEstimator } from './energyEstimator';
 import { SessionPersister } from './sessionPersister';
 import { Optimizer } from './optimizer';
@@ -18,6 +19,9 @@ export const rejectedSuggestions = new Map<string, Set<string>>();
 
 // Map from suggestionId → OptimizationSuggestion (active suggestions)
 export const activeSuggestions = new Map<string, OptimizationSuggestion>();
+
+// Map from suggestionId → filePath (so accept works without an active editor)
+export const suggestionFilePaths = new Map<string, string>();
 
 /** Spawn a process, sample it live, and return result + metrics. */
 async function profileWithLiveSampling(
@@ -91,6 +95,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const persister = new SessionPersister(workspacePath);
   const energyEstimator = await EnergyEstimator.create();
   const optimizer = new Optimizer();
+  const runner = new ExecutionRunner();
+  const llmOptimizer = new LlmOptimizer(context.secrets);
+
+  const mcpServer = new McpServer(persister, runner, optimizer, llmOptimizer, workspacePath);
+  mcpServer.start();
+  context.subscriptions.push({ dispose: () => mcpServer.stop() });
 
   // kiro-profiler.profile command
   context.subscriptions.push(
@@ -295,9 +305,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Populate activeSuggestions map
+      // Populate activeSuggestions map and record the file path for each suggestion
       for (const suggestion of suggestions) {
         activeSuggestions.set(suggestion.id, suggestion);
+        suggestionFilePaths.set(suggestion.id, session.filePath);
       }
 
       // Show suggestions in the dashboard
@@ -328,15 +339,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Resolve file path from session — works even when dashboard is focused
+      // Resolve file path directly from the suggestion — no active editor needed
+      const filePath = suggestionFilePaths.get(suggestionId);
+      if (!filePath) {
+        vscode.window.showErrorMessage('Could not determine file for this suggestion. Please re-run LLM optimization.');
+        return;
+      }
+
+      // Find the matching session for re-profiling after apply
       const allSessions = await persister.list(workspacePath);
-      const sessionSummary = allSessions[0];
+      const sessionSummary = allSessions.find((s) => s.filePath === filePath) ?? allSessions[0];
       if (!sessionSummary) {
         vscode.window.showWarningMessage('No profiling session found.');
         return;
       }
       const originalSession = await persister.load(sessionSummary.id);
-      const filePath = originalSession.filePath;
 
       // Open the document by path (no active editor needed)
       let document: vscode.TextDocument;
@@ -371,6 +388,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       vscode.window.showInformationMessage('Optimization applied. Re-profiling…');
       activeSuggestions.delete(suggestionId);
+      suggestionFilePaths.delete(suggestionId);
 
       // Re-profile with live sampling
       const config = configManager.getConfig();
@@ -426,6 +444,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // 5.1 Remove from activeSuggestions
       activeSuggestions.delete(suggestionId);
+      suggestionFilePaths.delete(suggestionId);
 
       // 5.2 Send updated (filtered) suggestion list to dashboard
       const rejectedForSession = rejectedSuggestions.get(sessionId)!;
@@ -450,9 +469,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      // Resolve file from session — no active editor needed
+      // Resolve file from suggestionFilePaths — no active editor needed
+      // Group suggestions by file path
+      const byFile = new Map<string, typeof allSuggestions>();
+      for (const s of allSuggestions) {
+        const fp = suggestionFilePaths.get(s.id);
+        if (!fp) continue;
+        if (!byFile.has(fp)) { byFile.set(fp, []); }
+        byFile.get(fp)!.push(s);
+      }
+
+      if (byFile.size === 0) {
+        vscode.window.showWarningMessage('Could not determine file paths for suggestions. Please re-run LLM optimization.');
+        return;
+      }
+
+      // Use the first (and typically only) file path for session lookup and re-profiling
+      const targetFilePath = byFile.keys().next().value as string;
       const allSessions = await persister.list(workspacePath);
-      const sessionSummary = allSessions[0];
+      const sessionSummary = allSessions.find((s) => s.filePath === targetFilePath) ?? allSessions[0];
       if (!sessionSummary) {
         vscode.window.showWarningMessage('No profiling session found.');
         return;
@@ -461,9 +496,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       let document: vscode.TextDocument;
       try {
-        document = await vscode.workspace.openTextDocument(originalSession.filePath);
+        document = await vscode.workspace.openTextDocument(targetFilePath);
       } catch {
-        vscode.window.showErrorMessage(`Could not open file: ${originalSession.filePath}`);
+        vscode.window.showErrorMessage(`Could not open file: ${targetFilePath}`);
         return;
       }
 
@@ -480,6 +515,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         currentContent = patched;
         activeSuggestions.delete(suggestion.id);
+        suggestionFilePaths.delete(suggestion.id);
         applied++;
       }
 

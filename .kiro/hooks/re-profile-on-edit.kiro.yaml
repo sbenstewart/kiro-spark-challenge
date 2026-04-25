@@ -1,0 +1,10 @@
+name: re-profile-on-edit
+trigger: fileEdited
+filePattern: "**/*.{py,ts,js}"
+description: >
+  Remind the agent to re-profile after significant edits to profiled source files.
+steps:
+  - type: vscode-command
+    command: kiro-profiler.profile
+    args:
+      filePath: "{{event.filePath}}"

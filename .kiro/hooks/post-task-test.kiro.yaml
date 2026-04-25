@@ -1,0 +1,7 @@
+name: post-task-test
+trigger: postTaskExecution
+description: >
+  Run the full test suite after each spec task completes to catch regressions.
+steps:
+  - type: shell
+    command: "cd kiro-code-profiler && npm test"
